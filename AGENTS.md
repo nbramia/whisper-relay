@@ -112,5 +112,6 @@ uvicorn voice_gateway.main:app --host 127.0.0.1 --port 8888
 - [README.md](README.md) — project overview
 - [docs/AGENTS.md](docs/AGENTS.md) — documentation standards
 - [docs/adr/001-voice-transport-layer.md](docs/adr/001-voice-transport-layer.md)
-- [ADR-003: Kokoro TTS](docs/adr/003-kokoro-tts-bm-george.md)
+- [docs/adr/002-upstream-integration-boundaries.md](docs/adr/002-upstream-integration-boundaries.md)
+- [docs/adr/003-kokoro-tts-bm-george.md](docs/adr/003-kokoro-tts-bm-george.md)
 - [docs/development-principles.md](docs/development-principles.md)
