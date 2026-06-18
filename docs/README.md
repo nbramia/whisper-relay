@@ -20,7 +20,7 @@ Adapted from personal [Development principles](~/Notes 2025/Development principl
 | ADR | Title | Summary |
 |-----|-------|---------|
 | [001](adr/001-voice-transport-layer.md) | Voice transport layer | Client surface of LifeOS, not an agent |
-| [002](adr/002-upstream-integration-boundaries.md) | Upstream integration | linux-whisper + LifeOS HTTP boundaries |
+| [003](adr/003-kokoro-tts-bm-george.md) | Kokoro TTS | `bm_george` British male voice |
 
 ADR rules: [adr/AGENTS.md](adr/AGENTS.md)
 

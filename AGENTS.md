@@ -15,7 +15,7 @@ whisper-relay is a **voice transport layer** for [LifeOS](https://github.com/nbr
 ## Key Concepts
 
 - **Transport layer:** speech → text → LifeOS → text → speech. No reasoning in between.
-- **Adapter boundaries:** `STTAdapter` (linux-whisper), `LifeOSClient` (HTTP SSE), `TTSAdapter` (TBD). See [ADR-002](docs/adr/002-upstream-integration-boundaries.md).
+- **Adapter boundaries:** `STTAdapter` (linux-whisper), `LifeOSClient` (HTTP SSE), `TTSAdapter` (Kokoro `bm_george`). See [ADR-002](docs/adr/002-upstream-integration-boundaries.md), [ADR-003](docs/adr/003-kokoro-tts-bm-george.md).
 - **LifeOS parity:** submit to `POST /api/ask/stream`; on `claude_intent`, call `POST /api/chat/handoff` — same as web chat. LifeOS owns all agent behavior.
 - **STT parity:** full linux-whisper polish pipeline, same `config.yaml` as the desktop dictation app.
 - **One turn per request:** Phase 1 is hold-to-talk HTTP multipart upload — no WebRTC, no streaming STT.
@@ -57,7 +57,7 @@ Full elaboration: [docs/development-principles.md](docs/development-principles.m
 | Tier | Rule |
 |------|------|
 | **Always** | Run full test suite before commit; structured logging (`logging`, not `print`); adapter protocols for STT / LifeOS / TTS; HTTP-only LifeOS integration (no `import lifeos`); mock GPU/STT/LifeOS/TTS in default tests; synthetic data in tests and docs |
-| **Ask first** | New `pyproject.toml` dependencies; changes to adapter protocol signatures; LifeOS API contract assumptions; TTS backend selection (requires ADR); binding beyond localhost; schema changes to turn storage |
+| **Ask first** | New `pyproject.toml` dependencies; changes to adapter protocol signatures; LifeOS API contract assumptions; binding beyond localhost; schema changes to turn storage |
 | **Never** | Add agent tools or orchestrator logic to whisper-relay; disable linux-whisper polish for gateway transcriptions; import LifeOS as a Python dependency; commit secrets; log real transcripts at INFO; block LifeOS handoffs locally; force-push main; skip hooks (`--no-verify`) |
 
 ---
@@ -84,7 +84,7 @@ These are structural — violations are bugs, not style nits:
 | Adapters (STT / LifeOS / TTS) | Not started — [#4](https://github.com/nbramia/whisper-relay/issues/4)–[#6](https://github.com/nbramia/whisper-relay/issues/6) |
 | Voice turn API | Not started — [#7](https://github.com/nbramia/whisper-relay/issues/7) |
 | Mobile web UI | Not started — [#9](https://github.com/nbramia/whisper-relay/issues/9) |
-| TTS backend | **Deferred** — ADR pending |
+| TTS backend | Kokoro `bm_george` — [ADR-003](docs/adr/003-kokoro-tts-bm-george.md) |
 
 **Stack (planned):** Python 3.12+, FastAPI, uvicorn, httpx, pydantic-settings, ffmpeg (system), linux-whisper (editable dep), LifeOS (HTTP only).
 
@@ -112,5 +112,5 @@ uvicorn voice_gateway.main:app --host 127.0.0.1 --port 8888
 - [README.md](README.md) — project overview
 - [docs/AGENTS.md](docs/AGENTS.md) — documentation standards
 - [docs/adr/001-voice-transport-layer.md](docs/adr/001-voice-transport-layer.md)
-- [docs/adr/002-upstream-integration-boundaries.md](docs/adr/002-upstream-integration-boundaries.md)
+- [ADR-003: Kokoro TTS](docs/adr/003-kokoro-tts-bm-george.md)
 - [docs/development-principles.md](docs/development-principles.md)

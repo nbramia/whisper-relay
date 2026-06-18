@@ -102,6 +102,6 @@ Structured JSON-friendly logging via `logging.getLogger(__name__)`.
 ## Related Documents
 
 - [testing-standards.md](testing-standards.md)
-- [../../adr/002-upstream-integration-boundaries.md](../../adr/002-upstream-integration-boundaries.md)
+- [../../adr/003-kokoro-tts-bm-george.md](../../adr/003-kokoro-tts-bm-george.md)
 - [../../development-principles.md](../../development-principles.md)
 - [../../../AGENTS.md](../../../AGENTS.md)

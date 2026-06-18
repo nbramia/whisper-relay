@@ -99,7 +99,7 @@ Speak the confirmation message returned by LifeOS (or the equivalent handoff tex
 
 ### TTS output
 
-**Status:** Backend not yet chosen (deferred).
+**Backend:** Kokoro via `kokoro-onnx`, voice `bm_george` (British male). See [ADR-003](003-kokoro-tts-bm-george.md).
 
 **Adapter boundary:**
 
@@ -108,12 +108,12 @@ async def synthesize(text, *, turn_id, out_path, clip_id="main") -> TTSResult
 ```
 
 Called for:
-- **Status clips** — short, low-latency preferred (`status-0`, `status-1`, …)
+- **Status clips** — short phrases (`status-0`, `status-1`, …)
 - **Main response** — final answer text (`main`)
 
 Strip markdown before synthesis. Multiple audio files per turn are served via `GET /api/voice/audio/{turn_id}/{clip_id}`.
 
-A null/stub backend supports CI and development without a TTS install.
+**NullTTSAdapter** supports CI without Kokoro model files installed.
 
 ## Rationale summary
 
@@ -145,9 +145,9 @@ A null/stub backend supports CI and development without a TTS install.
 
 **Rejected.** Makes voice a crippled LifeOS surface. User expects voice to trigger the same workflows as chat.
 
-### Piper / espeak locked in for TTS
+### Piper / espeak as primary TTS
 
-**Deferred.** Adapter boundary defined; backend choice needs separate discussion (latency vs quality for status clips vs long answers).
+**Rejected** in favor of Kokoro — see [ADR-003](003-kokoro-tts-bm-george.md). espeak remains acceptable only as an undocumented dev fallback; null stub is preferred for CI.
 
 ## Consequences
 
@@ -168,19 +168,21 @@ src/voice_gateway/adapters/
 | `LIFEOS_BASE_URL` | `http://127.0.0.1:8000` | LifeOS HTTP client target |
 | `LINUX_WHISPER_CONFIG` | `~/.config/linux-whisper/config.yaml` | Shared with desktop app |
 | `FFMPEG_BIN` | `ffmpeg` | Audio normalization |
-| `TTS_BACKEND` | TBD | TTS adapter selection |
+| `TTS_BACKEND` | `kokoro` | `kokoro` or `null` (CI stub) |
+| `KOKORO_VOICE` | `bm_george` | Kokoro voice ID |
 
 ### Operational dependencies
 
 1. LifeOS running and reachable at `LIFEOS_BASE_URL`.
 2. linux-whisper installed with models; same config as desktop dictation.
 3. ffmpeg on PATH.
-4. TTS backend (once chosen).
+4. Kokoro model files + espeak-ng ([ADR-003](003-kokoro-tts-bm-george.md)).
 5. Tailscale Serve exposing `127.0.0.1:8888` to the tailnet.
 
 ## Related Documents
 
 - [ADR-001: Voice transport layer](001-voice-transport-layer.md)
+- [ADR-003: Kokoro TTS with bm_george](003-kokoro-tts-bm-george.md)
 - [Code conventions](../specs/standards/code-conventions.md)
 - [Testing standards](../specs/standards/testing-standards.md)
 - [LifeOS API reference — `/api/ask/stream`](https://github.com/nbramia/LifeOS/blob/main/docs/specs/product/api-reference.md)

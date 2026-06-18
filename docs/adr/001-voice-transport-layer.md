@@ -91,7 +91,7 @@ Orchestrator turns can take tens of seconds when tools run. Chat UI shows "Searc
 
 ## Related Documents
 
-- [ADR-002: Upstream integration boundaries](002-upstream-integration-boundaries.md)
+- [ADR-003: Kokoro TTS with bm_george](003-kokoro-tts-bm-george.md)
 - [Development principles](../development-principles.md)
 - [AGENTS.md](../../AGENTS.md) — project constitution
 - [GitHub epic #1](https://github.com/nbramia/whisper-relay/issues/1)

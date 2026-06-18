@@ -33,7 +33,7 @@ Stop and ask a human before proceeding if any of these apply:
 | Importing LifeOS or linux-whisper internals beyond public adapter surfaces | Breaks deploy boundary; couple repos |
 | Changing `STTAdapter`, `LifeOSClient`, or `TTSAdapter` protocol signatures | Affects all backends simultaneously |
 | Adding a dependency to `pyproject.toml` | GPU/shared-lib conflicts are real (see linux-whisper ROCm isolation) |
-| Selecting or implementing a TTS backend | Requires ADR — explicitly deferred |
+| Selecting or changing TTS voice/backend | Requires ADR — see [ADR-003](docs/adr/003-kokoro-tts-bm-george.md) |
 | Blocking `claude_intent` / handoffs locally instead of calling `/api/chat/handoff` | Breaks LifeOS client parity |
 | Logging transcript or response text at INFO in production paths | Voice data is personal |
 | Acceptance criteria are ambiguous or untestable | Wastes implementation effort |
@@ -47,7 +47,7 @@ Voice turns are user-perceived end-to-end. When touching the pipeline, be aware 
 | ffmpeg normalize | < 100ms |
 | STT + polish (linux-whisper) | ~300–500ms |
 | LifeOS orchestrator | 2–30s (tool-dependent) |
-| TTS (per clip) | TBD |
+| TTS (Kokoro `bm_george`, per clip) | TBD — benchmark on target hardware |
 
 Don't add synchronous work on the hot path without justification. CPU-bound stages belong in `asyncio.to_thread()`.
 

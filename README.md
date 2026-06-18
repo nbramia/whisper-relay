@@ -60,7 +60,7 @@ Early planning. Implementation tracked in [GitHub issues](https://github.com/nbr
 - [LifeOS](https://github.com/nbramia/LifeOS) running locally (default `http://127.0.0.1:8000`)
 - `ffmpeg` for audio normalization
 - Tailscale for phone → Linux access
-- TTS backend — TBD ([ADR-002](docs/adr/002-upstream-integration-boundaries.md#tts-output))
+- TTS: Kokoro (`bm_george`, British male) — [ADR-003](docs/adr/003-kokoro-tts-bm-george.md)
 
 ## Quick start
 
@@ -91,6 +91,7 @@ tailscale serve --bg --https=443 http://127.0.0.1:8888
 | [docs/specs/standards/testing-standards.md](docs/specs/standards/testing-standards.md) | Testing rules |
 | [ADR-001](docs/adr/001-voice-transport-layer.md) | Voice transport layer — what whisper-relay is and is not |
 | [ADR-002](docs/adr/002-upstream-integration-boundaries.md) | linux-whisper + LifeOS integration boundaries |
+| [ADR-003](docs/adr/003-kokoro-tts-bm-george.md) | Kokoro TTS — `bm_george` voice |
 
 ## License
 

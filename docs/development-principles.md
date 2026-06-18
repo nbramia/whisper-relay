@@ -48,7 +48,7 @@ From Development principles § Architectural principles (`~/Notes 2025/Developme
 
 ### Interfaces for infrastructure, simple implementations first
 
-STT, LifeOS, and TTS are `typing.Protocol` adapters with one implementation each in Phase 1. The turn pipeline depends on protocols, not concrete classes. TTS backend is explicitly deferred behind this seam.
+STT, LifeOS, and TTS are `typing.Protocol` adapters with one implementation each in Phase 1. TTS: Kokoro `bm_george` ([ADR-003](adr/003-kokoro-tts-bm-george.md)).
 
 ### Ingestion consumes the public API
 
@@ -88,8 +88,7 @@ Full rules: [docs/AGENTS.md](AGENTS.md).
 ## Architecture Decision Records
 
 - Append-only; supersede, don't edit
-- Write for: new dependencies, adapter contract changes, TTS selection, security/privacy design
-- Deferral ADRs are valid ("TTS backend TBD — revisit when X")
+- Write for: new dependencies, adapter contract changes, security/privacy design
 
 whisper-relay ADRs: [docs/adr/](adr/).
 
@@ -138,7 +137,7 @@ Full doc: [specs/standards/code-conventions.md](specs/standards/code-conventions
 - [AGENTS.md](../AGENTS.md) — project constitution and boundaries table
 - [CLAUDE.md](../CLAUDE.md) — Claude Code escalation rules
 - [adr/001-voice-transport-layer.md](adr/001-voice-transport-layer.md)
-- [adr/002-upstream-integration-boundaries.md](adr/002-upstream-integration-boundaries.md)
+- [adr/003-kokoro-tts-bm-george.md](adr/003-kokoro-tts-bm-george.md)
 - [specs/standards/testing-standards.md](specs/standards/testing-standards.md)
 - [specs/standards/code-conventions.md](specs/standards/code-conventions.md)
 
