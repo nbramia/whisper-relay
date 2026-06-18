@@ -111,9 +111,7 @@ class HTTPLifeOSClient:
                         full_text += f"\n\nError: {err}" if full_text else f"Error: {err}"
 
             if pending_engine and pending_task:
-                handoff = await self._handoff(
-                    client, pending_engine, pending_task, conv_id
-                )
+                handoff = await self._handoff(client, pending_engine, pending_task, conv_id)
                 full_text = handoff.message
 
         return LifeOSResult(

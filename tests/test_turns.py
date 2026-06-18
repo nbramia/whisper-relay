@@ -32,9 +32,7 @@ class FailingLifeOS:
 async def test_turn_rejects_empty_transcript(tmp_path):
     settings = Settings(data_dir=tmp_path, tts_backend="null")
     storage = TurnStorage(settings.turns_dir)
-    pipeline = TurnPipeline(
-        settings, storage, EmptySTT(), StubLifeOSClient(), NullTTSAdapter()
-    )
+    pipeline = TurnPipeline(settings, storage, EmptySTT(), StubLifeOSClient(), NullTTSAdapter())
     normalized = NormalizedAudio(pcm_bytes=b"\x00\x00" * 100, duration_s=0.1)
     with (
         patch("voice_gateway.turns.normalize_audio", return_value=normalized),
@@ -48,9 +46,7 @@ async def test_turn_rejects_empty_transcript(tmp_path):
 async def test_turn_maps_lifeos_error_to_502(tmp_path):
     settings = Settings(data_dir=tmp_path, tts_backend="null")
     storage = TurnStorage(settings.turns_dir)
-    pipeline = TurnPipeline(
-        settings, storage, StubSTTAdapter(), FailingLifeOS(), NullTTSAdapter()
-    )
+    pipeline = TurnPipeline(settings, storage, StubSTTAdapter(), FailingLifeOS(), NullTTSAdapter())
     normalized = NormalizedAudio(pcm_bytes=b"\x00\x00" * 100, duration_s=0.1)
     with (
         patch("voice_gateway.turns.normalize_audio", return_value=normalized),
