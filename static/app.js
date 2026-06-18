@@ -1,7 +1,20 @@
 const STORAGE_KEY = "whisper_relay_conversation_id";
 const AUTO_CONTINUE_KEY = "whisper_relay_auto_continue";
 const MUTE_KEY = "whisper_relay_mute";
+const FAST_SPEECH_KEY = "whisper_relay_fast_speech";
+const DOCK_SETTINGS_KEY = "whisper_relay_dock_settings";
+
+const DEFAULT_DOCK_SETTINGS = {
+  mute: false,
+  auto: false,
+  fast: false,
+};
+
+let dockSettings = { ...DEFAULT_DOCK_SETTINGS };
+const FAST_PLAYBACK_RATE = 2;
 const MIN_RECORD_MS = 300;
+const SILENCE_PEAK_THRESHOLD = 0.012;
+const SILENCE_RMS_THRESHOLD = 0.006;
 
 const MIME_CANDIDATES = [
   "audio/webm;codecs=opus",
@@ -27,6 +40,7 @@ const els = {
   convList: document.getElementById("conv-list"),
   autoContinue: document.getElementById("auto-continue"),
   muteOutput: document.getElementById("mute-output"),
+  fastSpeech: document.getElementById("fast-speech"),
   statusBanner: document.getElementById("status-banner"),
   statusText: document.getElementById("status-text"),
   timer: document.getElementById("timer"),
@@ -82,7 +96,91 @@ function unlockTtsAudio() {
   const audio = getTtsAudioElement();
   audio.volume = 1;
   audio.src = SILENT_WAV;
+  audio.playbackRate = 1;
   audio.play().catch(() => {});
+}
+
+function readLegacyDockSetting(key) {
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function loadDockSettings() {
+  try {
+    const raw = localStorage.getItem(DOCK_SETTINGS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      dockSettings = {
+        mute: !!parsed.mute,
+        auto: !!parsed.auto,
+        fast: !!parsed.fast,
+      };
+      return dockSettings;
+    }
+  } catch {
+    /* fall through to legacy keys or defaults */
+  }
+
+  dockSettings = {
+    mute: readLegacyDockSetting(MUTE_KEY),
+    auto: readLegacyDockSetting(AUTO_CONTINUE_KEY),
+    fast: readLegacyDockSetting(FAST_SPEECH_KEY),
+  };
+  persistDockSettings();
+  return dockSettings;
+}
+
+function persistDockSettings() {
+  try {
+    localStorage.setItem(DOCK_SETTINGS_KEY, JSON.stringify(dockSettings));
+    localStorage.setItem(MUTE_KEY, dockSettings.mute ? "1" : "0");
+    localStorage.setItem(AUTO_CONTINUE_KEY, dockSettings.auto ? "1" : "0");
+    localStorage.setItem(FAST_SPEECH_KEY, dockSettings.fast ? "1" : "0");
+  } catch {
+    /* private browsing or storage blocked */
+  }
+}
+
+function persistDockSettingsFromUi() {
+  dockSettings = {
+    mute: !!els.muteOutput?.checked,
+    auto: !!els.autoContinue?.checked,
+    fast: !!els.fastSpeech?.checked,
+  };
+  persistDockSettings();
+}
+
+function applyDockSettingsToUi() {
+  loadDockSettings();
+  if (els.autoContinue) els.autoContinue.checked = dockSettings.auto;
+  if (els.muteOutput) els.muteOutput.checked = dockSettings.mute;
+  if (els.fastSpeech) els.fastSpeech.checked = dockSettings.fast;
+}
+
+function getFastSpeech() {
+  return dockSettings.fast;
+}
+
+function setFastSpeech(enabled) {
+  dockSettings.fast = enabled;
+  persistDockSettings();
+}
+
+function getPlaybackRate() {
+  return getFastSpeech() ? FAST_PLAYBACK_RATE : 1;
+}
+
+function applyPlaybackRate(audio) {
+  audio.playbackRate = getPlaybackRate();
+  audio.preservesPitch = true;
+}
+
+function syncActivePlaybackRates() {
+  for (const audio of activeAudios) applyPlaybackRate(audio);
+  if (ttsAudio) applyPlaybackRate(ttsAudio);
 }
 
 function playUrlOnElement(audio, url) {
@@ -99,6 +197,7 @@ function playUrlOnElement(audio, url) {
       audio.oncanplaythrough = null;
     };
     const start = () => {
+      applyPlaybackRate(audio);
       audio.onended = () => {
         ttsPlayedAny = true;
         cleanup();
@@ -257,19 +356,21 @@ function blobFilename(mime) {
 }
 
 function getAutoContinue() {
-  return localStorage.getItem(AUTO_CONTINUE_KEY) === "1";
+  return dockSettings.auto;
 }
 
 function setAutoContinue(enabled) {
-  localStorage.setItem(AUTO_CONTINUE_KEY, enabled ? "1" : "0");
+  dockSettings.auto = enabled;
+  persistDockSettings();
 }
 
 function setMuted(enabled) {
-  localStorage.setItem(MUTE_KEY, enabled ? "1" : "0");
+  dockSettings.mute = enabled;
+  persistDockSettings();
 }
 
 function getMuted() {
-  return localStorage.getItem(MUTE_KEY) === "1";
+  return dockSettings.mute;
 }
 
 function shouldPlayAudio() {
@@ -284,6 +385,64 @@ function setUiPhase(phase) {
   els.statusBanner.classList.toggle("hidden", phase === "idle");
   const showStop = phase === "processing" || phase === "playing";
   els.btnStop.classList.toggle("hidden", !showStop);
+}
+
+function pcmLevels(samples) {
+  if (!samples?.length) return { peak: 0, rms: 0 };
+  let sumSq = 0;
+  let peak = 0;
+  for (let i = 0; i < samples.length; i += 1) {
+    const abs = Math.abs(samples[i]);
+    if (abs > peak) peak = abs;
+    sumSq += samples[i] * samples[i];
+  }
+  return { peak, rms: Math.sqrt(sumSq / samples.length) };
+}
+
+function isSilentLevels(peak, rms) {
+  return peak < SILENCE_PEAK_THRESHOLD && rms < SILENCE_RMS_THRESHOLD;
+}
+
+class EmptyRecordingError extends Error {
+  constructor() {
+    super("empty recording");
+    this.name = "EmptyRecordingError";
+  }
+}
+
+function isEmptyRecordingError(err) {
+  return err?.name === "EmptyRecordingError";
+}
+
+function isNoSpeechError(message) {
+  return /no speech/i.test(String(message || ""));
+}
+
+async function isSilentBlob(blob) {
+  if (!blob || blob.size === 0) return true;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return false;
+  const ctx = new Ctx();
+  try {
+    const buffer = await ctx.decodeAudioData(await blob.arrayBuffer());
+    const { peak, rms } = pcmLevels(buffer.getChannelData(0));
+    return isSilentLevels(peak, rms);
+  } catch {
+    return false;
+  } finally {
+    await ctx.close().catch(() => {});
+  }
+}
+
+async function handleSkippedEmptyRecording() {
+  showError("");
+  if (getAutoContinue()) {
+    els.statusText.textContent = "Listening…";
+    await maybeAutoContinue();
+    return;
+  }
+  showError("No speech heard — speak longer, then tap to send.");
+  setUiPhase("idle");
 }
 
 function showError(msg) {
@@ -436,6 +595,7 @@ async function playUrls(urls, { autoContinueAfter = false, replayEl = null } = {
       } else {
         await new Promise((resolve, reject) => {
           const audio = new Audio(url);
+          applyPlaybackRate(audio);
           activeAudios.push(audio);
           audio.onended = () => resolve();
           audio.onerror = () => reject(new Error("playback failed"));
@@ -510,6 +670,7 @@ async function playSingleUrl(url) {
   }
   return new Promise((resolve, reject) => {
     const audio = new Audio(url);
+    applyPlaybackRate(audio);
     activeAudios.push(audio);
     audio.onended = () => resolve();
     audio.onerror = () => reject(new Error("playback failed"));
@@ -618,7 +779,13 @@ async function submitTurn({ blob, mime, transcript }) {
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       clearThinking();
-      throw new Error(data.detail || `Request failed (${res.status})`);
+      const detail = data.detail || `Request failed (${res.status})`;
+      if (getAutoContinue() && res.status === 400 && isNoSpeechError(detail)) {
+        showError("");
+        await maybeAutoContinue();
+        return;
+      }
+      throw new Error(detail);
     }
 
     const data = await consumeTurnStream(res);
@@ -647,6 +814,11 @@ async function submitTurn({ blob, mime, transcript }) {
       return;
     }
     clearThinking();
+    if (getAutoContinue() && isNoSpeechError(err?.message)) {
+      showError("");
+      await maybeAutoContinue();
+      return;
+    }
     throw err;
   } finally {
     activeTurnId = null;
@@ -729,8 +901,14 @@ function startSpeechRecognition() {
     const text = speechParts.join(" ").trim();
     speechParts = [];
     if (!text) {
-      showError("No speech heard — tap to talk and speak clearly.");
-      setUiPhase("idle");
+      if (getAutoContinue()) {
+        showError("");
+        els.statusText.textContent = "Listening…";
+        await maybeAutoContinue();
+      } else {
+        showError("No speech heard — tap to talk and speak clearly.");
+        setUiPhase("idle");
+      }
       return;
     }
 
@@ -849,7 +1027,7 @@ function stopMediaRecorder() {
       const blob = new Blob(chunks, { type: mime });
       chunks = [];
       if (blob.size === 0) {
-        reject(new Error("No audio captured — speak longer, then tap to send."));
+        reject(new EmptyRecordingError());
         return;
       }
       resolve({ blob, mime });
@@ -954,7 +1132,12 @@ function stopWebAudioRecording() {
     releaseCapture();
 
     if (flat.length === 0) {
-      reject(new Error("No audio captured — speak longer, then tap to send."));
+      reject(new EmptyRecordingError());
+      return;
+    }
+    const { peak, rms } = pcmLevels(flat);
+    if (isSilentLevels(peak, rms)) {
+      reject(new EmptyRecordingError());
       return;
     }
     resolve({ blob: encodeWav(flat, sampleRate), mime: "audio/wav" });
@@ -978,8 +1161,16 @@ async function stopRecordingAndSend() {
 
   try {
     const { blob, mime } = await stopRecorder();
+    if (await isSilentBlob(blob)) {
+      await handleSkippedEmptyRecording();
+      return;
+    }
     await submitTurn({ blob, mime });
   } catch (err) {
+    if (isEmptyRecordingError(err)) {
+      await handleSkippedEmptyRecording();
+      return;
+    }
     showError(err.message || String(err));
     setUiPhase("idle");
   }
@@ -1087,12 +1278,10 @@ els.convList.addEventListener("click", (event) => {
   loadConversation(id).catch((err) => showError(err.message || String(err)));
 });
 
-els.autoContinue.checked = getAutoContinue();
 els.autoContinue.addEventListener("change", () => {
   setAutoContinue(els.autoContinue.checked);
 });
 
-els.muteOutput.checked = getMuted();
 els.muteOutput.addEventListener("change", () => {
   setMuted(els.muteOutput.checked);
   if (getMuted()) {
@@ -1101,7 +1290,19 @@ els.muteOutput.addEventListener("change", () => {
   }
 });
 
+els.fastSpeech.addEventListener("change", () => {
+  setFastSpeech(els.fastSpeech.checked);
+  syncActivePlaybackRates();
+});
+
+applyDockSettingsToUi();
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") persistDockSettingsFromUi();
+});
+
 window.addEventListener("pagehide", () => {
+  persistDockSettingsFromUi();
   micStream?.getTracks().forEach((t) => t.stop());
   micStream = null;
   recognition?.abort();
