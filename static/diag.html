@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>whisper-relay · device diagnostics</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; padding: 16px;
+      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: #0f1419; color: #e6edf3;
+    }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    .sub { color: #8b949e; margin: 0 0 16px; font-size: 13px; }
+    .verdict {
+      padding: 12px 14px; border-radius: 10px; margin: 0 0 16px;
+      font-weight: 600; line-height: 1.4;
+    }
+    .verdict.ok { background: #14361f; color: #7ee2a8; border: 1px solid #2ea04366; }
+    .verdict.bad { background: #3a1518; color: #ff9aa2; border: 1px solid #f8514966; }
+    .verdict.unknown { background: #2a2410; color: #f0d77a; border: 1px solid #d2a8061a; }
+    table { width: 100%; border-collapse: collapse; margin: 0 0 16px; }
+    td { padding: 7px 6px; border-bottom: 1px solid #21262d; vertical-align: top; }
+    td.k { color: #8b949e; width: 42%; }
+    td.v { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; word-break: break-word; }
+    .yes { color: #7ee2a8; } .no { color: #ff9aa2; }
+    button {
+      width: 100%; padding: 14px; margin: 6px 0; border: 0; border-radius: 10px;
+      font-size: 16px; font-weight: 600; background: #1f6feb; color: #fff;
+    }
+    button.alt { background: #30363d; }
+    pre {
+      background: #010409; border: 1px solid #21262d; border-radius: 8px;
+      padding: 12px; font-size: 12px; white-space: pre-wrap; word-break: break-word;
+      min-height: 1.5em; margin: 6px 0 16px;
+    }
+    h2 { font-size: 14px; margin: 18px 0 4px; color: #8b949e; text-transform: uppercase; letter-spacing: .04em; }
+  </style>
+</head>
+<body>
+  <h1>whisper-relay diagnostics</h1>
+  <p class="sub">Open this page in <b>both</b> Chrome and Safari on the iPhone and compare. No debugger needed — results print below.</p>
+
+  <div id="verdict" class="verdict unknown">Detecting…</div>
+
+  <h2>Environment</h2>
+  <table id="env"></table>
+
+  <h2>Microphone — getUserMedia</h2>
+  <button id="btn-gum">Test microphone access</button>
+  <pre id="out-gum">Tap the button (must be a real tap — required by iOS).</pre>
+
+  <h2>Speech recognition — Web Speech API</h2>
+  <button id="btn-sr" class="alt">Test speech recognition (say something)</button>
+  <pre id="out-sr">Tap the button, then speak for ~2 seconds.</pre>
+
+  <script>
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+    const ua = navigator.userAgent;
+    const isIOS = /iPhone|iPod|iPad/i.test(ua) ||
+      (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
+    const isCriOS = /CriOS/i.test(ua);                 // Chrome on iOS
+    const isFxiOS = /FxiOS/i.test(ua);                 // Firefox on iOS
+    const isEdgiOS = /EdgiOS/i.test(ua);               // Edge on iOS
+    const isThirdPartyiOS = isIOS && (isCriOS || isFxiOS || isEdgiOS);
+    const isSafariiOS = isIOS && !isThirdPartyiOS;
+
+    const yesno = (b) => b
+      ? '<span class="yes">yes</span>'
+      : '<span class="no">no</span>';
+
+    const mimes = [
+      "audio/webm;codecs=opus", "audio/webm",
+      "audio/mp4", "audio/mp4;codecs=mp4a.40.2",
+      "audio/ogg;codecs=opus", "audio/wav",
+    ];
+    const mr = typeof MediaRecorder !== "undefined";
+    const supported = mr
+      ? mimes.filter((m) => MediaRecorder.isTypeSupported(m))
+      : [];
+
+    const rows = [
+      ["Browser", isCriOS ? "Chrome (iOS)" : isFxiOS ? "Firefox (iOS)" :
+        isEdgiOS ? "Edge (iOS)" : isSafariiOS ? "Safari (iOS)" : "other / desktop"],
+      ["User agent", ua],
+      ["isSecureContext (HTTPS)", yesno(window.isSecureContext)],
+      ["mediaDevices.getUserMedia", yesno(!!navigator.mediaDevices?.getUserMedia)],
+      ["MediaRecorder", yesno(mr)],
+      ["Supported audio MIME types", supported.length ? supported.join("<br>") : "<span class='no'>none</span>"],
+      ["SpeechRecognition API", yesno(!!SR)],
+    ];
+    document.getElementById("env").innerHTML = rows
+      .map(([k, v]) => `<tr><td class="k">${k}</td><td class="v">${v}</td></tr>`)
+      .join("");
+
+    const verdict = document.getElementById("verdict");
+    if (isThirdPartyiOS) {
+      verdict.className = "verdict bad";
+      verdict.innerHTML = "⚠️ This is a third-party browser on iOS. Apple blocks the microphone here — neither getUserMedia nor speech recognition will work. <b>Open this URL in Safari.</b>";
+    } else if (isSafariiOS) {
+      verdict.className = "verdict ok";
+      verdict.innerHTML = "✅ Safari on iOS — microphone APIs should be available. Run both tests below to confirm.";
+    } else if (!window.isSecureContext) {
+      verdict.className = "verdict bad";
+      verdict.innerHTML = "⚠️ Not a secure context. Microphone APIs require HTTPS — open the https:// Tailscale URL.";
+    } else {
+      verdict.className = "verdict unknown";
+      verdict.innerHTML = "Desktop or non-iOS browser. Run the tests below.";
+    }
+
+    document.getElementById("btn-gum").addEventListener("click", async () => {
+      const out = document.getElementById("out-gum");
+      out.textContent = "Requesting microphone…";
+      if (!navigator.mediaDevices?.getUserMedia) {
+        out.innerHTML = '<span class="no">getUserMedia is not available in this browser at all.</span>';
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const tracks = stream.getAudioTracks();
+        out.innerHTML = '<span class="yes">✅ SUCCESS</span>\n' +
+          "tracks: " + tracks.length + "\n" +
+          "label: " + (tracks[0]?.label || "(empty)") + "\n" +
+          "readyState: " + (tracks[0]?.readyState || "?");
+        tracks.forEach((t) => t.stop());
+      } catch (err) {
+        out.innerHTML = '<span class="no">❌ FAILED</span>\n' +
+          "error.name: " + err.name + "\n" +
+          "error.message: " + err.message;
+      }
+    });
+
+    document.getElementById("btn-sr").addEventListener("click", () => {
+      const out = document.getElementById("out-sr");
+      if (!SR) {
+        out.innerHTML = '<span class="no">❌ SpeechRecognition is not available in this browser at all.</span>';
+        return;
+      }
+      out.textContent = "Starting… speak now.";
+      try {
+        const rec = new SR();
+        rec.continuous = false;
+        rec.interimResults = true;
+        rec.lang = "en-GB";
+        rec.onstart = () => { out.textContent = "🎤 Listening… speak now."; };
+        rec.onerror = (e) => {
+          out.innerHTML = '<span class="no">❌ error: ' + e.error + '</span>';
+        };
+        rec.onresult = (e) => {
+          let txt = "";
+          for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript;
+          out.innerHTML = '<span class="yes">✅ heard:</span> ' + txt;
+        };
+        rec.onend = () => { out.textContent += "\n(ended)"; };
+        rec.start();
+      } catch (err) {
+        out.innerHTML = '<span class="no">❌ ' + err.name + ": " + err.message + '</span>';
+      }
+    });
+  </script>
+</body>
+</html>

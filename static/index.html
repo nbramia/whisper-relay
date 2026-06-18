@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f1419" />
+  <title>whisper-relay</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <h1>Voice</h1>
+      <p class="subtitle">Tap to talk · LifeOS</p>
+    </header>
+
+    <section id="state-recording" class="state hidden">
+      <div class="pulse-ring"></div>
+      <p class="state-label">Recording…</p>
+      <p id="timer" class="timer">0:00</p>
+    </section>
+
+    <section id="state-processing" class="state hidden">
+      <div class="spinner"></div>
+      <p class="state-label">Thinking…</p>
+      <p id="status-text" class="status-text"></p>
+    </section>
+
+    <section id="state-result" class="state hidden">
+      <div class="card">
+        <h2>You said</h2>
+        <p id="transcript" class="text-block"></p>
+      </div>
+      <div class="card">
+        <h2>LifeOS</h2>
+        <p id="response" class="text-block"></p>
+      </div>
+      <div class="actions">
+        <button id="btn-replay" type="button" class="btn secondary">Replay</button>
+        <button id="btn-stop" type="button" class="btn secondary">Stop</button>
+      </div>
+    </section>
+
+    <div class="controls">
+      <p class="hint" id="hint">Tap to start recording</p>
+      <button id="btn-talk" type="button" class="btn talk" aria-label="Tap to talk">
+        Tap to talk
+      </button>
+    </div>
+
+    <p id="error" class="error hidden"></p>
+  </main>
+  <script src="/app.js?v=16"></script>
+</body>
+</html>
