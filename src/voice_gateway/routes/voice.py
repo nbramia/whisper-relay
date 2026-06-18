@@ -9,6 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
+from voice_gateway.adapters.text_backend import normalize_backend
 from voice_gateway.cancel import TurnRegistry
 from voice_gateway.models import VoiceTurnResponse
 from voice_gateway.turns import TurnError, TurnPipeline
@@ -55,6 +56,7 @@ async def voice_turn(
     audio: UploadFile | None = File(default=None),
     transcript: str | None = Form(default=None),
     conversation_id: str | None = Form(default=None),
+    backend: str = Form(default="lifeos"),
 ) -> VoiceTurnResponse:
     pipeline = _get_pipeline(request)
     raw, content_type, filename, conv_id, client_transcript = await _read_turn_upload(
@@ -68,6 +70,7 @@ async def voice_turn(
             filename=filename,
             conversation_id=conv_id,
             client_transcript=client_transcript,
+            backend=normalize_backend(backend),
         )
     except TurnError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -79,11 +82,13 @@ async def voice_turn_stream(
     audio: UploadFile | None = File(default=None),
     transcript: str | None = Form(default=None),
     conversation_id: str | None = Form(default=None),
+    backend: str = Form(default="lifeos"),
 ) -> StreamingResponse:
     pipeline = _get_pipeline(request)
     raw, content_type, filename, conv_id, client_transcript = await _read_turn_upload(
         request, audio, transcript, conversation_id
     )
+    backend_kind = normalize_backend(backend)
 
     async def event_stream():
         registry: TurnRegistry = request.app.state.turn_registry
@@ -94,6 +99,7 @@ async def voice_turn_stream(
             conversation_id=conv_id,
             client_transcript=client_transcript,
             registry=registry,
+            backend=backend_kind,
         ):
             yield f"data: {json.dumps(event)}\n\n"
             if event.get("type") in {"done", "error", "cancelled"}:

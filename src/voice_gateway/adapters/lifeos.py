@@ -56,6 +56,82 @@ class LifeOSClient(Protocol):
     async def get_conversation(self, conversation_id: str) -> dict[str, Any]: ...
 
 
+@dataclass(slots=True)
+class AskStreamState:
+    full_text: str = ""
+    conv_id: str | None = None
+    statuses: list[str] = field(default_factory=list)
+    pending_engine: str | None = None
+    pending_task: str | None = None
+
+
+def _apply_sse_event(
+    state: AskStreamState,
+    event: dict[str, Any],
+    *,
+    parse_handoff: bool,
+    turn_id: str,
+    fallback_question: str,
+) -> None:
+    etype = event.get("type")
+    if etype == "content":
+        state.full_text += event.get("content", "")
+    elif etype == "self_correction":
+        state.full_text = ""
+    elif etype == "conversation_id":
+        state.conv_id = event.get("conversation_id", state.conv_id)
+    elif etype == "status":
+        msg = event.get("message", "")
+        if msg:
+            state.statuses.append(msg)
+    elif etype == "claude_intent" and parse_handoff:
+        state.pending_engine = event.get("engine", "claude_code")
+        state.pending_task = event.get("task", fallback_question)
+    elif etype == "error":
+        err = event.get("message", "Unknown error")
+        logger.error("text backend SSE error turn_id=%s: %s", turn_id, err)
+        state.full_text += f"\n\nError: {err}" if state.full_text else f"Error: {err}"
+
+
+async def consume_ask_sse_stream(
+    resp: Any,
+    *,
+    question: str,
+    conversation_id: str | None,
+    turn_id: str,
+    on_status: StatusCallback | None,
+    cancel: Any,
+    parse_handoff: bool,
+) -> AskStreamState:
+    state = AskStreamState(conv_id=conversation_id)
+    async for line in resp.aiter_lines():
+        if cancel is not None and getattr(cancel, "is_set", None) and cancel.is_set():
+            await resp.aclose()
+            raise LifeOSCancelled("turn cancelled")
+
+        if not line.startswith("data: "):
+            continue
+        try:
+            event = json.loads(line[6:])
+        except json.JSONDecodeError:
+            continue
+
+        _apply_sse_event(
+            state,
+            event,
+            parse_handoff=parse_handoff,
+            turn_id=turn_id,
+            fallback_question=question,
+        )
+
+        if event.get("type") == "status":
+            msg = event.get("message", "")
+            if msg and on_status:
+                await on_status(msg)
+
+    return state
+
+
 class HTTPLifeOSClient:
     def __init__(self, base_url: str, timeout_s: float = 300.0) -> None:
         self._base_url = base_url.rstrip("/")
@@ -74,12 +150,7 @@ class HTTPLifeOSClient:
         if conversation_id:
             body["conversation_id"] = conversation_id
 
-        full_text = ""
-        conv_id = conversation_id
-        statuses: list[str] = []
         handoff: HandoffResult | None = None
-        pending_engine: str | None = None
-        pending_task: str | None = None
 
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             async with client.stream(
@@ -91,48 +162,27 @@ class HTTPLifeOSClient:
                     raw = await resp.aread()
                     raise LifeOSError(f"LifeOS returned HTTP {resp.status_code}: {raw[:500]!r}")
 
-                async for line in resp.aiter_lines():
-                    if cancel is not None and getattr(cancel, "is_set", None) and cancel.is_set():
-                        await resp.aclose()
-                        raise LifeOSCancelled("turn cancelled")
+                state = await consume_ask_sse_stream(
+                    resp,
+                    question=question,
+                    conversation_id=conversation_id,
+                    turn_id=turn_id,
+                    on_status=on_status,
+                    cancel=cancel,
+                    parse_handoff=True,
+                )
 
-                    if not line.startswith("data: "):
-                        continue
-                    try:
-                        event = json.loads(line[6:])
-                    except json.JSONDecodeError:
-                        continue
-
-                    etype = event.get("type")
-                    if etype == "content":
-                        full_text += event.get("content", "")
-                    elif etype == "self_correction":
-                        full_text = ""
-                    elif etype == "conversation_id":
-                        conv_id = event.get("conversation_id", conv_id)
-                    elif etype == "status":
-                        msg = event.get("message", "")
-                        if msg:
-                            statuses.append(msg)
-                            if on_status:
-                                await on_status(msg)
-                    elif etype == "claude_intent":
-                        pending_engine = event.get("engine", "claude_code")
-                        pending_task = event.get("task", question)
-                    elif etype == "error":
-                        err = event.get("message", "Unknown error")
-                        logger.error("LifeOS SSE error turn_id=%s: %s", turn_id, err)
-                        full_text += f"\n\nError: {err}" if full_text else f"Error: {err}"
-
-            if pending_engine and pending_task:
-                handoff = await self._handoff(client, pending_engine, pending_task, conv_id)
-                full_text = handoff.message
+            if state.pending_engine and state.pending_task:
+                handoff = await self._handoff(
+                    client, state.pending_engine, state.pending_task, state.conv_id
+                )
+                state.full_text = handoff.message
 
         return LifeOSResult(
-            answer=full_text.strip(),
-            conversation_id=conv_id,
+            answer=state.full_text.strip(),
+            conversation_id=state.conv_id,
             handoff=handoff,
-            statuses=statuses,
+            statuses=state.statuses,
         )
 
     async def _handoff(

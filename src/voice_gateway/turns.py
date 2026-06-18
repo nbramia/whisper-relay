@@ -9,8 +9,9 @@ from collections.abc import AsyncIterator
 from typing import Any
 from uuid import uuid4
 
-from voice_gateway.adapters.lifeos import LifeOSCancelled, LifeOSClient, LifeOSError
+from voice_gateway.adapters.lifeos import LifeOSCancelled, LifeOSError
 from voice_gateway.adapters.stt import STTAdapter
+from voice_gateway.adapters.text_backend import TextBackendRouter, TextBackendUnavailableError
 from voice_gateway.adapters.tts import TTSAdapter
 from voice_gateway.audio import AudioNormalizationError, normalize_audio
 from voice_gateway.cancel import TurnRegistry
@@ -39,13 +40,13 @@ class TurnPipeline:
         settings: Settings,
         storage: TurnStorage,
         stt: STTAdapter,
-        lifeos: LifeOSClient,
+        text_backend: TextBackendRouter,
         tts: TTSAdapter,
     ) -> None:
         self._settings = settings
         self._storage = storage
         self._stt = stt
-        self._lifeos = lifeos
+        self._text_backend = text_backend
         self._tts = tts
 
     async def warmup(self) -> None:
@@ -60,6 +61,7 @@ class TurnPipeline:
         filename: str | None,
         conversation_id: str | None,
         client_transcript: str | None = None,
+        backend: str = "lifeos",
     ) -> VoiceTurnResponse:
         response: VoiceTurnResponse | None = None
         async for event in self.run_turn_stream(
@@ -68,6 +70,7 @@ class TurnPipeline:
             filename=filename,
             conversation_id=conversation_id,
             client_transcript=client_transcript,
+            backend=backend,
         ):
             if event["type"] == "done":
                 response = VoiceTurnResponse(**event["data"])
@@ -86,9 +89,16 @@ class TurnPipeline:
         conversation_id: str | None,
         client_transcript: str | None = None,
         registry: TurnRegistry | None = None,
+        backend: str = "lifeos",
     ) -> AsyncIterator[dict[str, Any]]:
         turn_id = str(uuid4())
         cancel = registry.start(turn_id) if registry else None
+
+        try:
+            text_client = self._text_backend.client_for(backend)
+        except TextBackendUnavailableError as exc:
+            yield {"type": "error", "message": str(exc), "status_code": 503}
+            return
 
         def check_cancelled() -> None:
             if cancel and cancel.is_set():
@@ -155,10 +165,10 @@ class TurnPipeline:
                 status_audio_urls.append(url)
                 await event_queue.put({"type": "status_audio", "url": url, "message": message})
 
-            async def run_lifeos() -> None:
+            async def run_text_backend() -> None:
                 try:
                     t0 = time.monotonic()
-                    result = await self._lifeos.ask(
+                    result = await text_client.ask(
                         transcript,
                         conversation_id=conversation_id,
                         turn_id=turn_id,
@@ -166,22 +176,22 @@ class TurnPipeline:
                         cancel=cancel,
                     )
                     timings.lifeos = int((time.monotonic() - t0) * 1000)
-                    await event_queue.put({"type": "_lifeos_done", "result": result})
+                    await event_queue.put({"type": "_backend_done", "result": result})
                 except Exception as exc:
-                    await event_queue.put({"type": "_lifeos_error", "error": exc})
+                    await event_queue.put({"type": "_backend_error", "error": exc})
                 finally:
                     await event_queue.put(None)
 
-            lifeos_task = asyncio.create_task(run_lifeos())
-            lifeos_result = None
+            backend_task = asyncio.create_task(run_text_backend())
+            backend_result = None
             while True:
                 item = await event_queue.get()
                 if item is None:
                     break
-                if item["type"] == "_lifeos_done":
-                    lifeos_result = item["result"]
+                if item["type"] == "_backend_done":
+                    backend_result = item["result"]
                     continue
-                if item["type"] == "_lifeos_error":
+                if item["type"] == "_backend_error":
                     err = item["error"]
                     if isinstance(err, LifeOSCancelled):
                         raise TurnCancelled()
@@ -191,11 +201,11 @@ class TurnPipeline:
                 check_cancelled()
                 yield item
 
-            await lifeos_task
-            if lifeos_result is None:
-                raise TurnError("LifeOS did not return a response", 502)
+            await backend_task
+            if backend_result is None:
+                raise TurnError("text backend did not return a response", 502)
 
-            response_text = lifeos_result.answer or "No response generated."
+            response_text = backend_result.answer or "No response generated."
             check_cancelled()
             yield {"type": "response", "text": response_text}
 
@@ -209,8 +219,8 @@ class TurnPipeline:
             timings.total = int((time.monotonic() - t_start) * 1000)
 
             handoff_info = None
-            if lifeos_result.handoff:
-                h = lifeos_result.handoff
+            if backend_result.handoff:
+                h = backend_result.handoff
                 handoff_info = HandoffInfo(
                     engine=h.engine,
                     task=h.task,
@@ -227,7 +237,7 @@ class TurnPipeline:
                 response_text=response_text,
                 audio_url=audio_url,
                 status_audio_urls=status_audio_urls,
-                conversation_id=lifeos_result.conversation_id,
+                conversation_id=backend_result.conversation_id,
                 handoff=handoff_info,
                 timings_ms=timings,
             )
@@ -236,7 +246,7 @@ class TurnPipeline:
                 "turn_id": turn_id,
                 "transcript": transcript,
                 "response_text": response_text,
-                "conversation_id": lifeos_result.conversation_id,
+                "conversation_id": backend_result.conversation_id,
                 "status_audio_urls": status_audio_urls,
                 "audio_url": audio_url,
                 "handoff": handoff_info.model_dump() if handoff_info else None,

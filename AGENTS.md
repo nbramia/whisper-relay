@@ -30,6 +30,7 @@ Rules in [docs/AGENTS.md](docs/AGENTS.md) are mandatory. Navigation:
 | Why does this project exist? | [README.md](README.md) |
 | Why transport layer, not agent? | [ADR-001](docs/adr/001-voice-transport-layer.md) |
 | How do we call linux-whisper and LifeOS? | [ADR-002](docs/adr/002-upstream-integration-boundaries.md) |
+| LifeOS vs Agent backend toggle | [ADR-004](docs/adr/004-dual-text-backends.md) |
 | Development principles (source) | [docs/development-principles.md](docs/development-principles.md) |
 | Python code conventions | [docs/specs/standards/code-conventions.md](docs/specs/standards/code-conventions.md) |
 | Testing standards | [docs/specs/standards/testing-standards.md](docs/specs/standards/testing-standards.md) |
@@ -74,7 +75,7 @@ These are structural — violations are bugs, not style nits:
 | Component | Status |
 |-----------|--------|
 | FastAPI service | Implemented |
-| Adapters (STT / LifeOS / TTS) | Implemented |
+| Adapters (STT / LifeOS / Agent / TTS) | Implemented |
 | Voice turn API | Implemented |
 | Mobile web UI | Implemented |
 
@@ -86,6 +87,7 @@ These are structural — violations are bugs, not style nits:
 
 - `linux-whisper` — STT + polish (editable install from sibling directory)
 - `LifeOS` — orchestrator (`http://127.0.0.1:8000`)
+- `agents` — OpenClaw voice-adapter for Agent mode (`http://127.0.0.1:8100`, see ADR-004)
 
 **Common commands (once implemented):**
 

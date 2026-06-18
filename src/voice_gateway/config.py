@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     lifeos_base_url: str = Field(default="http://127.0.0.1:8000", alias="LIFEOS_BASE_URL")
     lifeos_timeout_s: float = Field(default=300.0, alias="LIFEOS_TIMEOUT_S")
 
+    agent_backend_url: str = Field(default="http://127.0.0.1:8100", alias="AGENT_BACKEND_URL")
+    agent_backend_timeout_s: float = Field(default=300.0, alias="AGENT_BACKEND_TIMEOUT_S")
+    agent_backend_token: str | None = Field(default=None, alias="AGENT_BACKEND_TOKEN")
+    agent_backend_enabled: bool = Field(default=True, alias="AGENT_BACKEND_ENABLED")
+
     linux_whisper_config: Path | None = Field(default=None, alias="LINUX_WHISPER_CONFIG")
     ffmpeg_bin: str = Field(default="ffmpeg", alias="FFMPEG_BIN")
     max_upload_bytes: int = Field(default=25 * 1024 * 1024, alias="VOICE_GATEWAY_MAX_UPLOAD_BYTES")

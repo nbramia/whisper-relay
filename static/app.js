@@ -1,4 +1,9 @@
-const STORAGE_KEY = "whisper_relay_conversation_id";
+const BACKEND_MODE_KEY = "whisper_relay_backend_mode";
+const LEGACY_CONVERSATION_KEY = "whisper_relay_conversation_id";
+const CONV_ID_KEYS = {
+  lifeos: "whisper_relay_conversation_id_lifeos",
+  agent: "whisper_relay_conversation_id_agent",
+};
 const AUTO_CONTINUE_KEY = "whisper_relay_auto_continue";
 const MUTE_KEY = "whisper_relay_mute";
 const FAST_SPEECH_KEY = "whisper_relay_fast_speech";
@@ -38,6 +43,8 @@ const els = {
   convSidebar: document.getElementById("conv-sidebar"),
   convOverlay: document.getElementById("conv-overlay"),
   convList: document.getElementById("conv-list"),
+  backendSubtitle: document.getElementById("backend-subtitle"),
+  backendOptions: document.querySelectorAll("[data-backend]"),
   autoContinue: document.getElementById("auto-continue"),
   muteOutput: document.getElementById("mute-output"),
   fastSpeech: document.getElementById("fast-speech"),
@@ -277,7 +284,8 @@ function escapeHtml(text) {
 }
 
 async function loadConversationList() {
-  const res = await fetch("/api/voice/conversations");
+  const backend = getBackendMode();
+  const res = await fetch(`/api/voice/conversations?backend=${encodeURIComponent(backend)}`);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
   cachedConversations = data.conversations || [];
@@ -300,7 +308,10 @@ function renderConversationMessages(messages) {
 }
 
 async function loadConversation(conversationId) {
-  const res = await fetch(`/api/voice/conversations/${conversationId}`);
+  const backend = getBackendMode();
+  const res = await fetch(
+    `/api/voice/conversations/${encodeURIComponent(conversationId)}?backend=${encodeURIComponent(backend)}`
+  );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
   setConversationId(data.id);
@@ -472,16 +483,79 @@ function formatMicError(err) {
   return err?.message || String(err);
 }
 
+function migrateLegacyConversationId() {
+  try {
+    const legacy = sessionStorage.getItem(LEGACY_CONVERSATION_KEY);
+    if (legacy && !sessionStorage.getItem(CONV_ID_KEYS.lifeos)) {
+      sessionStorage.setItem(CONV_ID_KEYS.lifeos, legacy);
+      sessionStorage.removeItem(LEGACY_CONVERSATION_KEY);
+    }
+  } catch {
+    /* storage blocked */
+  }
+}
+
+function getBackendMode() {
+  migrateLegacyConversationId();
+  try {
+    const mode = sessionStorage.getItem(BACKEND_MODE_KEY);
+    return mode === "agent" ? "agent" : "lifeos";
+  } catch {
+    return "lifeos";
+  }
+}
+
+function setBackendMode(mode) {
+  const next = mode === "agent" ? "agent" : "lifeos";
+  try {
+    sessionStorage.setItem(BACKEND_MODE_KEY, next);
+  } catch {
+    /* storage blocked */
+  }
+  updateBackendUi();
+}
+
+function updateBackendUi() {
+  const mode = getBackendMode();
+  for (const btn of els.backendOptions) {
+    btn.classList.toggle("active", btn.dataset.backend === mode);
+  }
+  if (els.backendSubtitle) {
+    els.backendSubtitle.textContent = mode === "agent" ? "Agent mode" : "LifeOS mode";
+  }
+  const sidebarTitle = document.querySelector(".conv-sidebar-header h2");
+  if (sidebarTitle) {
+    sidebarTitle.textContent = mode === "agent" ? "Agent threads" : "Conversations";
+  }
+}
+
 function getConversationId() {
-  return sessionStorage.getItem(STORAGE_KEY) || "";
+  migrateLegacyConversationId();
+  const key = CONV_ID_KEYS[getBackendMode()];
+  try {
+    return sessionStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
 }
 
 function setConversationId(id) {
-  if (id) sessionStorage.setItem(STORAGE_KEY, id);
+  if (!id) return;
+  const key = CONV_ID_KEYS[getBackendMode()];
+  try {
+    sessionStorage.setItem(key, id);
+  } catch {
+    /* storage blocked */
+  }
 }
 
 function clearConversation() {
-  sessionStorage.removeItem(STORAGE_KEY);
+  const key = CONV_ID_KEYS[getBackendMode()];
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    /* storage blocked */
+  }
   for (const child of [...els.thread.children]) {
     if (child.id !== "thread-empty") child.remove();
   }
@@ -759,7 +833,7 @@ async function consumeTurnStream(response) {
 
 async function submitTurn({ blob, mime, transcript }) {
   setUiPhase("processing");
-  els.statusText.textContent = "Thinking…";
+  els.statusText.textContent = getBackendMode() === "agent" ? "Agent thinking…" : "Thinking…";
   showThinking();
   activeTurnId = null;
   activeTurnAbort = new AbortController();
@@ -769,6 +843,7 @@ async function submitTurn({ blob, mime, transcript }) {
   if (transcript) form.append("transcript", transcript);
   const convId = getConversationId();
   if (convId) form.append("conversation_id", convId);
+  form.append("backend", getBackendMode());
 
   try {
     const res = await fetch("/api/voice/turn/stream", {
@@ -1296,6 +1371,18 @@ els.fastSpeech.addEventListener("change", () => {
 });
 
 applyDockSettingsToUi();
+updateBackendUi();
+
+for (const btn of els.backendOptions) {
+  btn.addEventListener("click", () => {
+    const next = btn.dataset.backend;
+    if (!next || next === getBackendMode()) return;
+    if (document.body.dataset.phase === "processing") return;
+    setBackendMode(next);
+    clearConversation();
+    closeConversationSidebar();
+  });
+}
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") persistDockSettingsFromUi();

@@ -54,6 +54,36 @@ body {
   flex-shrink: 0;
 }
 
+.topbar-center {
+  text-align: center;
+}
+
+.backend-toggle {
+  display: inline-flex;
+  padding: 0.15rem;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--surface-2);
+  gap: 0.15rem;
+}
+
+.backend-option {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.backend-option.active {
+  background: var(--accent);
+  color: #fff;
+}
+
 .topbar-title {
   text-align: center;
 }

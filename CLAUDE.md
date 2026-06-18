@@ -5,7 +5,7 @@
 ## Workflow
 
 - Use plan mode for non-trivial tasks (3+ files, adapter boundary changes, unclear requirements).
-- Read [ADR-001](docs/adr/001-voice-transport-layer.md) and [ADR-002](docs/adr/002-upstream-integration-boundaries.md) before any adapter or pipeline work.
+- Read [ADR-001](docs/adr/001-voice-transport-layer.md), [ADR-002](docs/adr/002-upstream-integration-boundaries.md), and [ADR-004](docs/adr/004-dual-text-backends.md) before adapter or pipeline work.
 - After modifying docs, verify compliance with [docs/AGENTS.md](docs/AGENTS.md).
 - When creating new modules under `src/voice_gateway/`, check if an `AGENTS.md` + `CLAUDE.md` pair is warranted (3+ files or distinct rules).
 
@@ -34,7 +34,7 @@ Stop and ask a human before proceeding if any of these apply:
 | Changing `STTAdapter`, `LifeOSClient`, or `TTSAdapter` protocol signatures | Affects all backends simultaneously |
 | Adding a dependency to `pyproject.toml` | GPU/shared-lib conflicts are real (see linux-whisper ROCm isolation) |
 | Selecting or changing TTS voice/backend | Requires ADR — see [ADR-003](docs/adr/003-kokoro-tts-bm-george.md) |
-| Blocking `claude_intent` / handoffs locally instead of calling `/api/chat/handoff` | Breaks LifeOS client parity |
+| Blocking `claude_intent` / handoffs locally instead of calling `/api/chat/handoff` | Breaks LifeOS client parity (LifeOS mode only; Agent mode uses voice-adapter escalation per [ADR-004](docs/adr/004-dual-text-backends.md)) |
 | Logging transcript or response text at INFO in production paths | Voice data is personal |
 | Acceptance criteria are ambiguous or untestable | Wastes implementation effort |
 

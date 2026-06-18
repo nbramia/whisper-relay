@@ -3,6 +3,7 @@ from httpx import ASGITransport, AsyncClient
 
 from conftest import StubLifeOSClient
 from voice_gateway.adapters.stt import StubSTTAdapter
+from voice_gateway.adapters.text_backend import TextBackendRouter
 from voice_gateway.adapters.tts import NullTTSAdapter
 from voice_gateway.config import Settings
 from voice_gateway.main import create_app
@@ -31,7 +32,7 @@ async def test_upload_too_large(tmp_path):
         settings,
         storage,
         StubSTTAdapter(),
-        StubLifeOSClient(),
+        TextBackendRouter(StubLifeOSClient()),
         NullTTSAdapter(),
     )
     app = create_app(settings, pipeline=pipeline)
