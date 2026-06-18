@@ -51,7 +51,35 @@ phone browser (Chrome, hold-to-talk)
 
 ## Status
 
-Early planning. Implementation tracked in [GitHub issues](https://github.com/nbramia/whisper-relay/issues). Architecture decisions are documented in [`docs/adr/`](docs/adr/).
+Phase 1 implementation on branch `feat/voice-gateway-phase1`. Tracked in [GitHub issues](https://github.com/nbramia/whisper-relay/issues). Architecture decisions are in [`docs/adr/`](docs/adr/).
+
+## Quick start
+
+```bash
+git clone https://github.com/nbramia/whisper-relay.git
+cd whisper-relay
+pip install -e ".[dev]"
+pip install -e ../linux-whisper   # sibling checkout; GPU STT
+
+# System deps (Ubuntu)
+sudo apt install ffmpeg espeak-ng
+
+# Kokoro TTS models (see ADR-003)
+bash scripts/setup-kokoro.sh
+
+# Copy env and adjust if needed
+cp .env.example .env
+
+# Run (default port 8888)
+uvicorn voice_gateway.main:app --host 127.0.0.1 --port 8888
+
+# Expose to tailnet (phone → Linux)
+tailscale serve --bg --https=443 http://127.0.0.1:8888
+```
+
+Open the served URL on your phone in Chrome, hold the mic button, speak, release. Responses play back automatically.
+
+For CI or local dev without Kokoro models, set `TTS_BACKEND=null` in `.env`.
 
 ## Prerequisites
 
@@ -62,21 +90,16 @@ Early planning. Implementation tracked in [GitHub issues](https://github.com/nbr
 - Tailscale for phone → Linux access
 - Kokoro TTS — see [ADR-003](docs/adr/003-kokoro-tts-bm-george.md)
 
-## Quick start
-
-> Not yet implemented. See issues [#2](https://github.com/nbramia/whisper-relay/issues/2)–[#10](https://github.com/nbramia/whisper-relay/issues/10).
+### systemd (optional)
 
 ```bash
-git clone https://github.com/nbramia/whisper-relay.git
-cd whisper-relay
-pip install -e .
-pip install -e ../linux-whisper   # sibling checkout
+sudo cp deploy/whisper-relay.service /etc/systemd/system/
+sudo systemctl enable --now whisper-relay
+```
 
-# Development (planned default port: 8888)
-uvicorn voice_gateway.main:app --host 127.0.0.1 --port 8888
-
-# Expose to tailnet
-tailscale serve --bg --https=443 http://127.0.0.1:8888
+```bash
+sudo cp deploy/whisper-relay.service /etc/systemd/system/
+sudo systemctl enable --now whisper-relay
 ```
 
 ## Documentation
