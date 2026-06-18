@@ -1,0 +1,6 @@
+{
+  "ok": true,
+  "session_id": "sess_test123456",
+  "engine": "claude_code",
+  "message": "Handed off to Claude Code — running in the background."
+}

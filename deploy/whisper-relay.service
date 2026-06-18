@@ -1,0 +1,15 @@
+[Unit]
+Description=Whisper Relay voice gateway
+After=network.target
+
+[Service]
+Type=simple
+User=nathan
+WorkingDirectory=/home/nathanramia/Code/whisper-relay
+EnvironmentFile=/home/nathanramia/Code/Sync/envs/whisper-relay/.env
+ExecStart=/home/nathanramia/.local/bin/uvicorn voice_gateway.main:app --host 127.0.0.1 --port 8888
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

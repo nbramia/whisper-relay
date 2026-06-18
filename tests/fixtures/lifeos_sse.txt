@@ -1,0 +1,11 @@
+data: {"type": "routing", "sources": ["agent"], "reasoning": "test", "latency_ms": 0}
+
+data: {"type": "status", "message": "Searching your calendar…"}
+
+data: {"type": "content", "content": "You have "}
+
+data: {"type": "content", "content": "three meetings tomorrow."}
+
+data: {"type": "conversation_id", "conversation_id": "conv-abc"}
+
+data: {"type": "done"}
