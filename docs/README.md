@@ -1,39 +1,35 @@
-# whisper-relay documentation
+# Documentation — whisper-relay
 
-## Start here
+## Where things live (single source of truth)
 
-| Audience | Document |
-|----------|----------|
-| Anyone | [README.md](../README.md) — project intent and sibling repos |
-| AI agents / contributors | [AGENTS.md](../AGENTS.md) — constitution, boundaries, invariants |
-| Claude Code | [CLAUDE.md](../CLAUDE.md) — escalation rules, common mistakes |
-| Documentation rules | [AGENTS.md](AGENTS.md) — taxonomy, ADR rules, maintenance |
+| Topic | Canonical doc | Everything else |
+|-------|---------------|-----------------|
+| Project intent & diagram | [README.md](../README.md) | — |
+| Agent rules, invariants, boundaries | [AGENTS.md](../AGENTS.md) | [CLAUDE.md](../CLAUDE.md) adds escalation/mistakes only |
+| Why transport layer, not agent | [adr/001](adr/001-voice-transport-layer.md) | README links here |
+| linux-whisper + LifeOS integration | [adr/002](adr/002-upstream-integration-boundaries.md) | Issues #4, #5 cite this |
+| TTS (Kokoro, `bm_george`, env vars) | [adr/003](adr/003-kokoro-tts-bm-george.md) | Do not duplicate config elsewhere |
+| Engineering process (generic) | [development-principles.md](development-principles.md) | AGENTS.md links; no project-specific duplication |
+| Python / test standards | [specs/standards/](specs/standards/) | — |
+| What to build | [GitHub issues](https://github.com/nbramia/whisper-relay/issues) | Not duplicated in ADRs |
 
-## Engineering principles
+**Rule:** If a fact appears in two places, one must be a one-line pointer to the other.
 
-Adapted from personal [Development principles](~/Notes 2025/Development principles/) notes (LifeDB-derived):
+## ADRs
 
-- [development-principles.md](development-principles.md) — curated principles for this repo
+| ADR | Title |
+|-----|-------|
+| [001](adr/001-voice-transport-layer.md) | Voice transport layer |
+| [002](adr/002-upstream-integration-boundaries.md) | Upstream integration |
+| [003](adr/003-kokoro-tts-bm-george.md) | Kokoro TTS |
 
-## Architecture Decision Records
+Rules: [adr/AGENTS.md](adr/AGENTS.md)
 
-| ADR | Title | Summary |
-|-----|-------|---------|
-| [001](adr/001-voice-transport-layer.md) | Voice transport layer | Client surface of LifeOS, not an agent |
-| [003](adr/003-kokoro-tts-bm-george.md) | Kokoro TTS | `bm_george` British male voice |
+## Upstream repos
 
-ADR rules: [adr/AGENTS.md](adr/AGENTS.md)
-
-## Standards
-
-| Document | Summary |
-|----------|---------|
-| [code-conventions.md](specs/standards/code-conventions.md) | Python, adapters, logging, privacy |
-| [testing-standards.md](specs/standards/testing-standards.md) | Unit vs integration, mocking, sacred tests |
+Phase 1 requires **no code changes** in [linux-whisper](https://github.com/nbramia/linux-whisper) or [LifeOS](https://github.com/nbramia/LifeOS) — whisper-relay consumes public APIs/libraries only. See [ADR-002 § Upstream scope](adr/002-upstream-integration-boundaries.md#upstream-repos-no-phase-1-changes).
 
 ## Related repos
 
-- [linux-whisper](https://github.com/nbramia/linux-whisper) — local STT + polish
-- [LifeOS](https://github.com/nbramia/LifeOS) — orchestrator and agent harness
-
-Implementation: [GitHub issues](https://github.com/nbramia/whisper-relay/issues)
+- [linux-whisper](https://github.com/nbramia/linux-whisper) — STT + polish (library import)
+- [LifeOS](https://github.com/nbramia/LifeOS) — orchestrator (HTTP client)

@@ -14,12 +14,12 @@ whisper-relay is a **voice transport layer** for [LifeOS](https://github.com/nbr
 
 ## Key Concepts
 
-- **Transport layer:** speech → text → LifeOS → text → speech. No reasoning in between.
-- **Adapter boundaries:** `STTAdapter` (linux-whisper), `LifeOSClient` (HTTP SSE), `TTSAdapter` (Kokoro `bm_george`). See [ADR-002](docs/adr/002-upstream-integration-boundaries.md), [ADR-003](docs/adr/003-kokoro-tts-bm-george.md).
-- **LifeOS parity:** submit to `POST /api/ask/stream`; on `claude_intent`, call `POST /api/chat/handoff` — same as web chat. LifeOS owns all agent behavior.
-- **STT parity:** full linux-whisper polish pipeline, same `config.yaml` as the desktop dictation app.
-- **One turn per request:** Phase 1 is hold-to-talk HTTP multipart upload — no WebRTC, no streaming STT.
-- **Sensitive data:** voice transcripts and responses are personal. Log `turn_id` and timings at INFO; full text only at DEBUG or in per-turn storage files.
+Details live in ADRs — do not duplicate here.
+
+- **Transport layer** → [ADR-001](docs/adr/001-voice-transport-layer.md)
+- **linux-whisper + LifeOS integration** → [ADR-002](docs/adr/002-upstream-integration-boundaries.md)
+- **TTS** → [ADR-003](docs/adr/003-kokoro-tts-bm-george.md)
+- **Invariants & boundaries** → sections below
 
 ## Documentation
 
@@ -41,14 +41,7 @@ Principles are adapted from personal Development principles notes at `~/Notes 20
 
 ## Development Principles
 
-Full elaboration: [docs/development-principles.md](docs/development-principles.md). Summary:
-
-1. **Think before acting** — surface tradeoffs; write ADRs before architectural decisions.
-2. **Simplicity first** — minimum code for the request; no speculative abstractions.
-3. **Surgical changes** — every changed line traces to the request.
-4. **Goal-driven execution** — acceptance criteria are the contract; implement until they're met.
-5. **Tests are sacred** — coverage only goes up; see testing standards.
-6. **Privacy** — voice data is personal; never log transcripts at INFO; synthetic data in tests/docs.
+[docs/development-principles.md](docs/development-principles.md) — generic engineering process adapted from personal Development principles notes.
 
 ---
 
@@ -84,7 +77,6 @@ These are structural — violations are bugs, not style nits:
 | Adapters (STT / LifeOS / TTS) | Not started — [#4](https://github.com/nbramia/whisper-relay/issues/4)–[#6](https://github.com/nbramia/whisper-relay/issues/6) |
 | Voice turn API | Not started — [#7](https://github.com/nbramia/whisper-relay/issues/7) |
 | Mobile web UI | Not started — [#9](https://github.com/nbramia/whisper-relay/issues/9) |
-| TTS backend | Kokoro `bm_george` — [ADR-003](docs/adr/003-kokoro-tts-bm-george.md) |
 
 **Stack (planned):** Python 3.12+, FastAPI, uvicorn, httpx, pydantic-settings, ffmpeg (system), linux-whisper (editable dep), LifeOS (HTTP only).
 

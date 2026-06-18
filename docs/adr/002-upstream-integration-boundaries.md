@@ -99,21 +99,7 @@ Speak the confirmation message returned by LifeOS (or the equivalent handoff tex
 
 ### TTS output
 
-**Backend:** Kokoro via `kokoro-onnx`, voice `bm_george` (British male). See [ADR-003](003-kokoro-tts-bm-george.md).
-
-**Adapter boundary:**
-
-```python
-async def synthesize(text, *, turn_id, out_path, clip_id="main") -> TTSResult
-```
-
-Called for:
-- **Status clips** — short phrases (`status-0`, `status-1`, …)
-- **Main response** — final answer text (`main`)
-
-Strip markdown before synthesis. Multiple audio files per turn are served via `GET /api/voice/audio/{turn_id}/{clip_id}`.
-
-**NullTTSAdapter** supports CI without Kokoro model files installed.
+See **[ADR-003](003-kokoro-tts-bm-george.md)** for backend choice, voice, model paths, env vars, and implementation contract. This ADR covers only the adapter seam: `TTSAdapter.synthesize(text, turn_id, out_path, clip_id)` with markdown stripped; multiple clips per turn; `NullTTSAdapter` for CI.
 
 ## Rationale summary
 
@@ -147,7 +133,18 @@ Strip markdown before synthesis. Multiple audio files per turn are served via `G
 
 ### Piper / espeak as primary TTS
 
-**Rejected** in favor of Kokoro — see [ADR-003](003-kokoro-tts-bm-george.md). espeak remains acceptable only as an undocumented dev fallback; null stub is preferred for CI.
+**Rejected** — [ADR-003](003-kokoro-tts-bm-george.md).
+
+## Upstream repos: no Phase 1 changes
+
+Phase 1 is implementable entirely in **whisper-relay**. No PRs required in sibling repos.
+
+| Upstream | How whisper-relay uses it | Code change needed? |
+|----------|---------------------------|---------------------|
+| **linux-whisper** | Python library: `Config.load()`, `create_engine()`, `PolishPipeline` — same as `app.py` | **No** — public API sufficient |
+| **LifeOS** | HTTP: `POST /api/ask/stream`, `POST /api/chat/handoff` — same as web chat | **No** — endpoints exist |
+
+**Optional later (not blocking):** linux-whisper headless `transcribe` CLI for debugging; LifeOS doc mention of voice client surface. Track as whisper-relay issues only if needed.
 
 ## Consequences
 
@@ -157,7 +154,7 @@ Strip markdown before synthesis. Multiple audio files per turn are served via `G
 src/voice_gateway/adapters/
   stt.py      → linux-whisper (STT + PolishPipeline)
   lifeos.py   → HTTP client (/api/ask/stream, /api/chat/handoff)
-  tts.py      → TBD backend behind protocol
+  tts.py      → Kokoro ([ADR-003](003-kokoro-tts-bm-george.md))
 ```
 
 ### Configuration
@@ -168,8 +165,8 @@ src/voice_gateway/adapters/
 | `LIFEOS_BASE_URL` | `http://127.0.0.1:8000` | LifeOS HTTP client target |
 | `LINUX_WHISPER_CONFIG` | `~/.config/linux-whisper/config.yaml` | Shared with desktop app |
 | `FFMPEG_BIN` | `ffmpeg` | Audio normalization |
-| `TTS_BACKEND` | `kokoro` | `kokoro` or `null` (CI stub) |
-| `KOKORO_VOICE` | `bm_george` | Kokoro voice ID |
+
+TTS env vars: [ADR-003](003-kokoro-tts-bm-george.md).
 
 ### Operational dependencies
 

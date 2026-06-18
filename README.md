@@ -60,7 +60,7 @@ Early planning. Implementation tracked in [GitHub issues](https://github.com/nbr
 - [LifeOS](https://github.com/nbramia/LifeOS) running locally (default `http://127.0.0.1:8000`)
 - `ffmpeg` for audio normalization
 - Tailscale for phone → Linux access
-- TTS: Kokoro (`bm_george`, British male) — [ADR-003](docs/adr/003-kokoro-tts-bm-george.md)
+- Kokoro TTS — see [ADR-003](docs/adr/003-kokoro-tts-bm-george.md)
 
 ## Quick start
 

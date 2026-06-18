@@ -48,7 +48,9 @@ From Development principles § Architectural principles (`~/Notes 2025/Developme
 
 ### Interfaces for infrastructure, simple implementations first
 
-STT, LifeOS, and TTS are `typing.Protocol` adapters with one implementation each in Phase 1. TTS: Kokoro `bm_george` ([ADR-003](adr/003-kokoro-tts-bm-george.md)).
+### Interfaces for infrastructure, simple implementations first
+
+STT, LifeOS, and TTS are `typing.Protocol` adapters. TTS: [ADR-003](adr/003-kokoro-tts-bm-george.md). Project invariants: [AGENTS.md](../AGENTS.md).
 
 ### Ingestion consumes the public API
 
