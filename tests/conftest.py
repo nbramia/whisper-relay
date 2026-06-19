@@ -24,7 +24,7 @@ class StubLifeOSClient:
         self.answer = answer
         self.last_question: str | None = None
 
-    async def ask(self, question, *, conversation_id, turn_id, on_status=None):
+    async def ask(self, question, *, conversation_id, turn_id, on_status=None, cancel=None):
         self.last_question = question
         if on_status:
             await on_status("Searching your calendar…")

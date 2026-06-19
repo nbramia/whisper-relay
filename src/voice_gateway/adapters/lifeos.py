@@ -35,6 +35,10 @@ class LifeOSError(Exception):
     """LifeOS request failed."""
 
 
+class LifeOSCancelled(LifeOSError):
+    """LifeOS stream cancelled."""
+
+
 @runtime_checkable
 class LifeOSClient(Protocol):
     async def ask(
@@ -44,6 +48,7 @@ class LifeOSClient(Protocol):
         conversation_id: str | None,
         turn_id: str,
         on_status: StatusCallback | None = None,
+        cancel: Any = None,
     ) -> LifeOSResult: ...
 
     async def list_conversations(self) -> dict[str, Any]: ...
@@ -63,6 +68,7 @@ class HTTPLifeOSClient:
         conversation_id: str | None,
         turn_id: str,
         on_status: StatusCallback | None = None,
+        cancel: Any = None,
     ) -> LifeOSResult:
         body: dict[str, Any] = {"question": question}
         if conversation_id:
@@ -86,6 +92,10 @@ class HTTPLifeOSClient:
                     raise LifeOSError(f"LifeOS returned HTTP {resp.status_code}: {raw[:500]!r}")
 
                 async for line in resp.aiter_lines():
+                    if cancel is not None and getattr(cancel, "is_set", None) and cancel.is_set():
+                        await resp.aclose()
+                        raise LifeOSCancelled("turn cancelled")
+
                     if not line.startswith("data: "):
                         continue
                     try:

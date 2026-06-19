@@ -55,6 +55,8 @@ let micAcquireFailed = false;
 let thinkingEl = null;
 let cachedConversations = [];
 let playbackChain = Promise.resolve();
+let activeTurnId = null;
+let activeTurnAbort = null;
 
 function formatConversationDate(iso) {
   if (!iso) return "";
@@ -201,7 +203,8 @@ function setUiPhase(phase) {
   els.btnTalk.disabled = phase === "processing" || phase === "playing";
   els.timer.classList.toggle("hidden", phase !== "recording");
   els.statusBanner.classList.toggle("hidden", phase !== "recording" && phase !== "processing");
-  els.btnStop.classList.toggle("hidden", phase !== "playing");
+  const showStop = phase === "processing" || phase === "playing";
+  els.btnStop.classList.toggle("hidden", !showStop);
   updateTalkHint();
 }
 
@@ -454,6 +457,12 @@ async function consumeTurnStream(response) {
   let buffer = "";
 
   const handleEvent = (event) => {
+    if (event.type === "started") {
+      activeTurnId = event.turn_id;
+    }
+    if (event.type === "cancelled") {
+      throw new DOMException("Turn cancelled", "AbortError");
+    }
     if (event.type === "error") {
       throw new Error(event.message || "Turn failed");
     }
@@ -492,6 +501,8 @@ async function submitTurn({ blob, mime, transcript }) {
   setUiPhase("processing");
   els.statusText.textContent = "Thinking…";
   showThinking();
+  activeTurnId = null;
+  activeTurnAbort = new AbortController();
 
   const form = new FormData();
   if (blob) form.append("audio", blob, blobFilename(mime));
@@ -499,30 +510,59 @@ async function submitTurn({ blob, mime, transcript }) {
   const convId = getConversationId();
   if (convId) form.append("conversation_id", convId);
 
-  const res = await fetch("/api/voice/turn/stream", { method: "POST", body: form });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
+  try {
+    const res = await fetch("/api/voice/turn/stream", {
+      method: "POST",
+      body: form,
+      signal: activeTurnAbort.signal,
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      clearThinking();
+      throw new Error(data.detail || `Request failed (${res.status})`);
+    }
+
+    const data = await consumeTurnStream(res);
+    if (!data) {
+      clearThinking();
+      throw new Error("Turn ended without a response");
+    }
+
+    if (data.conversation_id) setConversationId(data.conversation_id);
+
     clearThinking();
-    throw new Error(data.detail || `Request failed (${res.status})`);
-  }
+    if (data.transcript) appendMessage(data.transcript, "user");
+    const playbackUrls = [...(data.status_audio_urls || []), data.audio_url].filter(Boolean);
+    lastPlayback = { urls: playbackUrls, texts: data };
+    if (data.response_text) appendMessage(data.response_text, "assistant", playbackUrls);
 
-  const data = await consumeTurnStream(res);
-  if (!data) {
+    await playbackChain;
+    isPlaying = false;
+    await maybeAutoContinue();
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      return;
+    }
     clearThinking();
-    throw new Error("Turn ended without a response");
+    throw err;
+  } finally {
+    activeTurnId = null;
+    activeTurnAbort = null;
   }
+}
 
-  if (data.conversation_id) setConversationId(data.conversation_id);
-
+function cancelActiveTurn() {
+  activeTurnAbort?.abort();
+  if (activeTurnId) {
+    fetch(`/api/voice/turn/${activeTurnId}/cancel`, { method: "POST" }).catch(() => {});
+  }
+  playbackChain = Promise.resolve();
+  stopAllAudio();
   clearThinking();
-  if (data.transcript) appendMessage(data.transcript, "user");
-  const playbackUrls = [...(data.status_audio_urls || []), data.audio_url].filter(Boolean);
-  lastPlayback = { urls: playbackUrls, texts: data };
-  if (data.response_text) appendMessage(data.response_text, "assistant", playbackUrls);
-
-  await playbackChain;
   isPlaying = false;
-  await maybeAutoContinue();
+  activeTurnId = null;
+  activeTurnAbort = null;
+  setUiPhase("idle");
 }
 
 function formatSpeechError(event) {
@@ -902,6 +942,10 @@ els.btnTalk.addEventListener("click", onTalkClick, false);
 els.btnTalk.addEventListener("contextmenu", (e) => e.preventDefault());
 
 els.btnStop.addEventListener("click", () => {
+  if (document.body.dataset.phase === "processing" || document.body.dataset.phase === "playing") {
+    cancelActiveTurn();
+    return;
+  }
   stopAllAudio();
   setUiPhase("idle");
 });

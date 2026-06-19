@@ -9,10 +9,11 @@ from collections.abc import AsyncIterator
 from typing import Any
 from uuid import uuid4
 
-from voice_gateway.adapters.lifeos import LifeOSClient, LifeOSError
+from voice_gateway.adapters.lifeos import LifeOSCancelled, LifeOSClient, LifeOSError
 from voice_gateway.adapters.stt import STTAdapter
 from voice_gateway.adapters.tts import TTSAdapter
 from voice_gateway.audio import AudioNormalizationError, normalize_audio
+from voice_gateway.cancel import TurnRegistry
 from voice_gateway.config import Settings
 from voice_gateway.logging import log_event
 from voice_gateway.models import HandoffInfo, TimingsMs, VoiceTurnResponse
@@ -25,6 +26,11 @@ class TurnError(Exception):
     def __init__(self, message: str, status_code: int = 500) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+class TurnCancelled(TurnError):
+    def __init__(self) -> None:
+        super().__init__("turn cancelled", 499)
 
 
 class TurnPipeline:
@@ -79,8 +85,15 @@ class TurnPipeline:
         filename: str | None,
         conversation_id: str | None,
         client_transcript: str | None = None,
+        registry: TurnRegistry | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         turn_id = str(uuid4())
+        cancel = registry.start(turn_id) if registry else None
+
+        def check_cancelled() -> None:
+            if cancel and cancel.is_set():
+                raise TurnCancelled()
+
         t_start = time.monotonic()
         timings = TimingsMs()
         status_audio_urls: list[str] = []
@@ -93,6 +106,7 @@ class TurnPipeline:
             if client_transcript and client_transcript.strip():
                 transcript = client_transcript.strip()
             elif audio_bytes:
+                check_cancelled()
                 t0 = time.monotonic()
                 try:
                     normalized = normalize_audio(
@@ -122,6 +136,7 @@ class TurnPipeline:
             if not transcript.strip():
                 raise TurnError("no speech detected", 400)
 
+            check_cancelled()
             yield {"type": "transcript", "text": transcript}
 
             tts_total_ms = 0
@@ -129,6 +144,7 @@ class TurnPipeline:
 
             async def on_status(message: str) -> None:
                 nonlocal status_idx, tts_total_ms
+                check_cancelled()
                 clip_id = f"status-{status_idx}"
                 status_idx += 1
                 out = self._storage.clip_path(turn_id, clip_id)
@@ -147,6 +163,7 @@ class TurnPipeline:
                         conversation_id=conversation_id,
                         turn_id=turn_id,
                         on_status=on_status,
+                        cancel=cancel,
                     )
                     timings.lifeos = int((time.monotonic() - t0) * 1000)
                     await event_queue.put({"type": "_lifeos_done", "result": result})
@@ -166,9 +183,12 @@ class TurnPipeline:
                     continue
                 if item["type"] == "_lifeos_error":
                     err = item["error"]
+                    if isinstance(err, LifeOSCancelled):
+                        raise TurnCancelled()
                     if isinstance(err, LifeOSError):
                         raise TurnError(str(err), 502) from err
                     raise err
+                check_cancelled()
                 yield item
 
             await lifeos_task
@@ -176,6 +196,7 @@ class TurnPipeline:
                 raise TurnError("LifeOS did not return a response", 502)
 
             response_text = lifeos_result.answer or "No response generated."
+            check_cancelled()
             yield {"type": "response", "text": response_text}
 
             t0 = time.monotonic()
@@ -234,9 +255,14 @@ class TurnPipeline:
             )
 
             yield {"type": "done", "data": response.model_dump()}
+        except TurnCancelled:
+            yield {"type": "cancelled", "turn_id": turn_id}
         except TurnError as exc:
             yield {
                 "type": "error",
                 "message": str(exc),
                 "status_code": exc.status_code,
             }
+        finally:
+            if registry:
+                registry.end(turn_id)

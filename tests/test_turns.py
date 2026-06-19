@@ -22,9 +22,12 @@ class EmptySTT:
     async def transcribe(self, pcm_bytes, *, turn_id):
         return "", {"stt_ms": 0, "polish_ms": 0}
 
+    async def warmup(self) -> None:
+        return
+
 
 class FailingLifeOS:
-    async def ask(self, question, *, conversation_id, turn_id, on_status=None):
+    async def ask(self, question, *, conversation_id, turn_id, on_status=None, cancel=None):
         raise LifeOSError("connection refused")
 
 

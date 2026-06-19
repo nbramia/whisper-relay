@@ -13,6 +13,7 @@ import logging
 from voice_gateway.adapters.lifeos import HTTPLifeOSClient
 from voice_gateway.adapters.stt import LinuxWhisperSTTAdapter
 from voice_gateway.adapters.tts import build_tts_adapter
+from voice_gateway.cancel import TurnRegistry
 from voice_gateway.config import Settings, get_settings
 from voice_gateway.logging import configure_logging
 from voice_gateway.routes import conversations, health, voice
@@ -61,6 +62,7 @@ def create_app(
     app.state.storage = storage
     app.state.pipeline = pipeline
     app.state.lifeos_client = lifeos
+    app.state.turn_registry = TurnRegistry()
 
     app.include_router(health.router)
     app.include_router(voice.router)

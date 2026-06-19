@@ -9,6 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
+from voice_gateway.cancel import TurnRegistry
 from voice_gateway.models import VoiceTurnResponse
 from voice_gateway.turns import TurnError, TurnPipeline
 
@@ -85,18 +86,28 @@ async def voice_turn_stream(
     )
 
     async def event_stream():
+        registry: TurnRegistry = request.app.state.turn_registry
         async for event in pipeline.run_turn_stream(
             raw,
             content_type=content_type,
             filename=filename,
             conversation_id=conv_id,
             client_transcript=client_transcript,
+            registry=registry,
         ):
             yield f"data: {json.dumps(event)}\n\n"
-            if event.get("type") in {"done", "error"}:
+            if event.get("type") in {"done", "error", "cancelled"}:
                 break
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/turn/{turn_id}/cancel")
+async def cancel_voice_turn(turn_id: str, request: Request) -> dict[str, bool]:
+    registry: TurnRegistry = request.app.state.turn_registry
+    if not registry.cancel(turn_id):
+        raise HTTPException(status_code=404, detail="turn not found or already finished")
+    return {"cancelled": True}
 
 
 @router.get("/audio/{turn_id}")
