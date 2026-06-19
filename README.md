@@ -95,11 +95,21 @@ Open your **`TAILNET_HTTPS_URL`** on your phone (note `https`, no port). HTTP on
 
 For CI or local dev without Kokoro models, set `TTS_BACKEND=null` in `.env`.
 
+### Agent mode smoke test
+
+With [voice-adapter](https://github.com/nbramia/agents) running (`curl -s localhost:8100/healthz` → `{"ok":true,...}`):
+
+1. Set `AGENT_BACKEND_URL=http://127.0.0.1:8100` in `.env`
+2. Open the mobile UI over Tailscale HTTPS
+3. Toggle **Agent** in the top bar and speak a turn
+4. Optional: `curl -s localhost:8888/health/backends` — both backends should report reachability when services are up
+
 ## Prerequisites
 
 - Linux workstation on your tailnet (GPU recommended for linux-whisper)
 - **linux-whisper** installed and configured (`~/.config/linux-whisper/config.yaml`)
-- **LifeOS** running locally (default `http://127.0.0.1:8000`)
+- **LifeOS** running locally (default `http://127.0.0.1:8000`) for LifeOS mode
+- **agents voice-adapter** (optional) for Agent mode — `docker compose --profile voice up` in [agents](https://github.com/nbramia/agents); set `AGENT_BACKEND_URL=http://127.0.0.1:8100` (see [ADR-004](docs/adr/004-dual-text-backends.md))
 - `ffmpeg` for audio normalization
 - Tailscale for phone → Linux access
 - Kokoro TTS — see [ADR-003](docs/adr/003-kokoro-tts-bm-george.md)
@@ -148,6 +158,7 @@ sudo systemctl enable --now whisper-relay
 | [ADR-001](docs/adr/001-voice-transport-layer.md) | Voice transport layer — what whisper-relay is and is not |
 | [ADR-002](docs/adr/002-upstream-integration-boundaries.md) | linux-whisper + LifeOS integration boundaries |
 | [ADR-003](docs/adr/003-kokoro-tts-bm-george.md) | Kokoro TTS — `bm_george` voice |
+| [ADR-004](docs/adr/004-dual-text-backends.md) | LifeOS vs Agent backend toggle |
 
 ## License
 

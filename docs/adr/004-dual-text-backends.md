@@ -53,8 +53,11 @@ Disable Agent routing without removing code: `AGENT_BACKEND_ENABLED=false`.
 - LifeOS handoffs do not apply in Agent mode; OpenClaw escalation is entirely in voice-adapter.
 - Future third backends would add another client + router entry, not inline pipeline logic.
 
-## Related
+## Related Documents
 
+- [001-voice-transport-layer.md](001-voice-transport-layer.md) — transport-layer invariant
+- [002-upstream-integration-boundaries.md](002-upstream-integration-boundaries.md) — LifeOS HTTP client
+- [../AGENTS.md](../AGENTS.md) — project agent reference
 - [nbramia/agents#64](https://github.com/nbramia/agents/issues/64) — voice-adapter HTTP bridge
 - [nbramia/agents#66](https://github.com/nbramia/agents/issues/66) — LifeOS-shaped conversation API
-- [nbramia/whisper-relay#16](https://github.com/nbramia/whisper-relay/issues/16) — this repo implementation
+- [nbramia/whisper-relay#16](https://github.com/nbramia/whisper-relay/issues/16) — whisper-relay implementation

@@ -66,6 +66,9 @@ tests/
 |--------|----------|
 | `turns.py` pipeline | High — full turn with mocked adapters |
 | `adapters/lifeos.py` | High — SSE parsing, handoff trigger, status callback |
+| `adapters/agent_backend.py` | High — agent SSE (no handoff), bearer auth, conversation proxy |
+| `adapters/text_backend.py` | Medium — backend normalization, router selection |
+| `routes/health.py` | Medium — `/health/backends` reachability |
 | `audio.py` | High — normalization, error cases |
 | `adapters/stt.py` | Medium — mock `STTEngine` + `PolishPipeline` |
 | `routes/voice.py` | Medium — HTTP status mapping |
@@ -91,9 +94,13 @@ If no test changes: PR description explains why existing tests suffice.
 ```
 tests/test_voice_turn.py
 tests/test_lifeos_client.py
+tests/test_agent_backend.py
+tests/test_text_backend.py
+tests/test_health_backends.py
 
 def test_turn_returns_transcript_and_audio_url():
 def test_handoff_called_on_claude_intent():
+def test_agent_backend_ignores_claude_intent():
 def test_normalize_rejects_empty_upload():
 ```
 

@@ -22,7 +22,7 @@ Organize by **concern**, not horizontal layers:
 
 ```
 src/voice_gateway/
-  adapters/     # STT, LifeOS client, TTS — protocol + impl
+  adapters/     # STT, text backends (LifeOS + Agent), TTS — protocol + impl
   routes/       # FastAPI routers
   audio.py      # ffmpeg normalization
   turns.py      # turn pipeline orchestration
