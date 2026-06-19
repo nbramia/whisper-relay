@@ -9,8 +9,10 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from voice_gateway.adapters.agent_backend import HTTPAgentBackendClient
 from voice_gateway.adapters.lifeos import HTTPLifeOSClient
 from voice_gateway.adapters.stt import LinuxWhisperSTTAdapter
+from voice_gateway.adapters.text_backend import TextBackendRouter
 from voice_gateway.adapters.tts import build_tts_adapter
 from voice_gateway.cancel import TurnRegistry
 from voice_gateway.config import Settings, get_settings
@@ -24,6 +26,18 @@ logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).resolve().parent.parent.parent / "static"
 
 
+def build_text_backend_router(settings: Settings) -> TextBackendRouter:
+    lifeos = HTTPLifeOSClient(settings.lifeos_base_url, settings.lifeos_timeout_s)
+    agent: HTTPAgentBackendClient | None = None
+    if settings.agent_backend_enabled:
+        agent = HTTPAgentBackendClient(
+            settings.agent_backend_url,
+            settings.agent_backend_timeout_s,
+            api_token=settings.agent_backend_token,
+        )
+    return TextBackendRouter(lifeos, agent)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     storage: TurnStorage = app.state.storage
@@ -34,6 +48,18 @@ async def lifespan(app: FastAPI):
         logger.info("voice adapters warmed up")
     except Exception:
         logger.exception("adapter warmup failed — first turn may be slower")
+
+    router: TextBackendRouter = app.state.text_backend_router
+    if router.agent is not None and isinstance(router.agent, HTTPAgentBackendClient):
+        try:
+            ok = await router.agent.health_check()
+            if ok:
+                logger.info("agent backend health check ok")
+            else:
+                logger.warning("agent backend health check returned not ok")
+        except Exception:
+            logger.warning("agent backend unreachable at startup — Agent mode may fail")
+
     yield
 
 
@@ -47,20 +73,21 @@ def create_app(
     settings.data_dir.mkdir(parents=True, exist_ok=True)
 
     storage = TurnStorage(settings.turns_dir, settings.turn_retention_hours)
+    text_backend = build_text_backend_router(settings)
     if pipeline is None:
         stt = LinuxWhisperSTTAdapter(settings)
-        lifeos = HTTPLifeOSClient(settings.lifeos_base_url, settings.lifeos_timeout_s)
         tts = build_tts_adapter(settings)
-        pipeline = TurnPipeline(settings, storage, stt, lifeos, tts)
+        pipeline = TurnPipeline(settings, storage, stt, text_backend, tts)
     else:
         storage = pipeline._storage
-        lifeos = pipeline._lifeos
+        text_backend = pipeline._text_backend
 
     app = FastAPI(title="whisper-relay", version="0.1.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.storage = storage
     app.state.pipeline = pipeline
-    app.state.lifeos_client = lifeos
+    app.state.text_backend_router = text_backend
+    app.state.lifeos_client = text_backend.lifeos
     app.state.turn_registry = TurnRegistry()
 
     app.include_router(health.router)

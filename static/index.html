@@ -14,9 +14,12 @@
       <button id="btn-chats" type="button" class="btn-ghost" title="Conversations">
         Chats
       </button>
-      <div class="topbar-title">
-        <h1>LifeOS</h1>
-        <p class="subtitle">Whisper Relay</p>
+      <div class="topbar-center">
+        <div class="backend-toggle" role="group" aria-label="Text backend">
+          <button type="button" class="backend-option active" data-backend="lifeos">LifeOS</button>
+          <button type="button" class="backend-option" data-backend="agent">Agent</button>
+        </div>
+        <p id="backend-subtitle" class="subtitle">LifeOS mode</p>
       </div>
       <button id="btn-new-chat" type="button" class="btn-ghost" title="New conversation">
         New chat
@@ -75,6 +78,6 @@
 
     <p id="error" class="error hidden" role="alert"></p>
   </main>
-  <script src="/app.js?v=34"></script>
+  <script src="/app.js?v=35"></script>
 </body>
 </html>

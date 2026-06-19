@@ -10,6 +10,7 @@ from httpx import ASGITransport, AsyncClient
 
 from voice_gateway.adapters.lifeos import LifeOSResult
 from voice_gateway.adapters.stt import StubSTTAdapter
+from voice_gateway.adapters.text_backend import TextBackendRouter
 from voice_gateway.adapters.tts import NullTTSAdapter
 from voice_gateway.config import Settings
 from voice_gateway.main import create_app
@@ -78,11 +79,12 @@ def tmp_settings(tmp_path: Path) -> Settings:
 @pytest.fixture
 def pipeline(tmp_settings: Settings) -> TurnPipeline:
     storage = TurnStorage(tmp_settings.turns_dir, tmp_settings.turn_retention_hours)
+    stub = StubLifeOSClient()
     return TurnPipeline(
         tmp_settings,
         storage,
         StubSTTAdapter("remind me to call mom"),
-        StubLifeOSClient(),
+        TextBackendRouter(stub),
         NullTTSAdapter(),
     )
 

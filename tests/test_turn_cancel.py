@@ -4,8 +4,10 @@ from unittest.mock import patch
 import pytest
 
 from voice_gateway.adapters.lifeos import LifeOSCancelled, LifeOSResult
+from voice_gateway.adapters.text_backend import TextBackendRouter
 from voice_gateway.audio import NormalizedAudio
 from voice_gateway.cancel import TurnRegistry
+from voice_gateway.turns import TurnPipeline
 
 
 class SlowStubLifeOS:
@@ -36,14 +38,13 @@ async def test_cancel_turn_during_stream(tmp_settings, tmp_path):
     from voice_gateway.adapters.stt import StubSTTAdapter
     from voice_gateway.adapters.tts import NullTTSAdapter
     from voice_gateway.storage import TurnStorage
-    from voice_gateway.turns import TurnPipeline
 
     storage = TurnStorage(tmp_settings.turns_dir, tmp_settings.turn_retention_hours)
     pipeline = TurnPipeline(
         tmp_settings,
         storage,
         StubSTTAdapter("hello"),
-        SlowStubLifeOS(),
+        TextBackendRouter(SlowStubLifeOS()),
         NullTTSAdapter(),
     )
     registry = TurnRegistry()

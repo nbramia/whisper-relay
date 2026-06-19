@@ -42,9 +42,10 @@ flowchart TB
 ## What it does
 
 - Tap-to-talk from a phone browser (Chrome or Safari, iOS or Android) over Tailscale
-- Multi-turn conversations — LifeOS `conversation_id` carries context across turns
-- Spoken status updates while LifeOS works through long orchestrator turns
-- Engine handoffs (`claude_intent` → `/api/chat/handoff`) — same behavior as web chat
+- Multi-turn conversations — separate `conversation_id` threads per backend (LifeOS or Agent)
+- **LifeOS | Agent** toggle — Agent mode routes to OpenClaw voice-adapter ([ADR-004](docs/adr/004-dual-text-backends.md))
+- Spoken status updates while the text backend works through long turns
+- Engine handoffs in LifeOS mode (`claude_intent` → `/api/chat/handoff`) — same behavior as web chat
 - Headless autostart on your workstation via systemd
 
 ## What it does not do
