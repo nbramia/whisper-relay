@@ -186,14 +186,36 @@ function hideThreadEmpty() {
   if (els.threadEmpty) els.threadEmpty.classList.add("hidden");
 }
 
-function appendMessage(text, role) {
+function appendMessage(text, role, audioUrls = null) {
   hideThreadEmpty();
   const el = document.createElement("div");
   el.className = `msg msg-${role}`;
   el.textContent = text;
+  if (role === "assistant" && audioUrls?.length) {
+    el.classList.add("msg-replayable");
+    el.dataset.audioUrls = JSON.stringify(audioUrls);
+    el.setAttribute("role", "button");
+    el.setAttribute("tabindex", "0");
+    el.setAttribute("aria-label", "Tap to replay response");
+  }
   els.thread.appendChild(el);
   els.thread.scrollTop = els.thread.scrollHeight;
   return el;
+}
+
+function parseAudioUrls(el) {
+  try {
+    return JSON.parse(el.dataset.audioUrls || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function setReplayingMessage(el) {
+  for (const node of els.thread.querySelectorAll(".msg-replaying")) {
+    node.classList.remove("msg-replaying");
+  }
+  if (el) el.classList.add("msg-replaying");
 }
 
 function showThinking() {
@@ -222,11 +244,12 @@ function stopAllAudio() {
   isPlaying = false;
 }
 
-async function playUrls(urls) {
+async function playUrls(urls, { autoContinueAfter = false, replayEl = null } = {}) {
   stopAllAudio();
   if (!urls.length) return;
   isPlaying = true;
   setUiPhase("playing");
+  setReplayingMessage(replayEl);
   try {
     for (const url of urls) {
       await new Promise((resolve, reject) => {
@@ -239,6 +262,25 @@ async function playUrls(urls) {
     }
   } finally {
     isPlaying = false;
+    setReplayingMessage(null);
+  }
+  if (autoContinueAfter) {
+    await maybeAutoContinue();
+  } else {
+    setUiPhase("idle");
+  }
+}
+
+async function replayMessage(el) {
+  if (document.body.dataset.phase === "processing") return;
+  const urls = parseAudioUrls(el);
+  if (!urls.length) return;
+  showError("");
+  try {
+    await playUrls(urls, { autoContinueAfter: false, replayEl: el });
+  } catch (err) {
+    showError(err.message || String(err));
+    setUiPhase("idle");
   }
 }
 
@@ -298,18 +340,16 @@ async function submitTurn({ blob, mime, transcript }) {
 
   clearThinking();
   if (data.transcript) appendMessage(data.transcript, "user");
-  if (data.response_text) appendMessage(data.response_text, "assistant");
+  const playbackUrls = [...(data.status_audio_urls || []), data.audio_url].filter(Boolean);
+  lastPlayback = { urls: playbackUrls, texts: data };
+  if (data.response_text) appendMessage(data.response_text, "assistant", playbackUrls);
 
-  lastPlayback = { urls: [...(data.status_audio_urls || []), data.audio_url].filter(Boolean), texts: data };
-
-  const urls = lastPlayback.urls;
-  if (urls.length) {
-    await playUrls(urls);
+  if (playbackUrls.length) {
+    await playUrls(playbackUrls, { autoContinueAfter: true });
   } else {
     setUiPhase("idle");
+    await maybeAutoContinue();
   }
-
-  await maybeAutoContinue();
 }
 
 function formatSpeechError(event) {
@@ -691,7 +731,19 @@ els.btnTalk.addEventListener("contextmenu", (e) => e.preventDefault());
 els.btnStop.addEventListener("click", () => {
   stopAllAudio();
   setUiPhase("idle");
-  maybeAutoContinue();
+});
+
+els.thread.addEventListener("click", (event) => {
+  const msg = event.target.closest(".msg-assistant.msg-replayable");
+  if (msg) replayMessage(msg);
+});
+
+els.thread.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const msg = event.target.closest(".msg-assistant.msg-replayable");
+  if (!msg) return;
+  event.preventDefault();
+  replayMessage(msg);
 });
 
 els.btnNewChat.addEventListener("click", () => {
