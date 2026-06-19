@@ -42,8 +42,6 @@
     </div>
 
     <footer class="dock">
-      <p id="hint" class="hint">Tap to talk</p>
-
       <div class="shutter-wrap">
         <div id="pulse-ring" class="pulse-ring hidden" aria-hidden="true"></div>
         <button id="btn-talk" type="button" class="shutter" aria-label="Tap to talk">
@@ -55,16 +53,23 @@
         <button id="btn-stop" type="button" class="btn-ghost btn-stop hidden" title="Stop playback">
           Stop
         </button>
-        <label class="toggle-auto" for="auto-continue">
-          <input type="checkbox" id="auto-continue" />
-          <span class="toggle-track" aria-hidden="true"></span>
-          <span class="toggle-label">Auto</span>
-        </label>
+        <div class="dock-toggles">
+          <label class="toggle-switch" for="mute-output">
+            <input type="checkbox" id="mute-output" />
+            <span class="toggle-track" aria-hidden="true"></span>
+            <span class="toggle-label">Mute</span>
+          </label>
+          <label class="toggle-switch" for="auto-continue">
+            <input type="checkbox" id="auto-continue" />
+            <span class="toggle-track" aria-hidden="true"></span>
+            <span class="toggle-label">Auto</span>
+          </label>
+        </div>
       </div>
     </footer>
 
     <p id="error" class="error hidden" role="alert"></p>
   </main>
-  <script src="/app.js?v=24"></script>
+  <script src="/app.js?v=31"></script>
 </body>
 </html>

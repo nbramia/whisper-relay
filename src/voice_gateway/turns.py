@@ -28,7 +28,7 @@ class TurnError(Exception):
         self.status_code = status_code
 
 
-class TurnCancelled(TurnError):
+class TurnCancelled(TurnError):  # noqa: N818
     def __init__(self) -> None:
         super().__init__("turn cancelled", 499)
 

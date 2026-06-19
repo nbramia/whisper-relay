@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-
-import logging
 
 from voice_gateway.adapters.lifeos import HTTPLifeOSClient
 from voice_gateway.adapters.stt import LinuxWhisperSTTAdapter

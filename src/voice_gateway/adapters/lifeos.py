@@ -35,7 +35,7 @@ class LifeOSError(Exception):
     """LifeOS request failed."""
 
 
-class LifeOSCancelled(LifeOSError):
+class LifeOSCancelled(LifeOSError):  # noqa: N818
     """LifeOS stream cancelled."""
 
 

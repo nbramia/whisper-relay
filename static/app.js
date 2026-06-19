@@ -1,5 +1,6 @@
 const STORAGE_KEY = "whisper_relay_conversation_id";
 const AUTO_CONTINUE_KEY = "whisper_relay_auto_continue";
+const MUTE_KEY = "whisper_relay_mute";
 const MIN_RECORD_MS = 300;
 
 const MIME_CANDIDATES = [
@@ -25,12 +26,12 @@ const els = {
   convOverlay: document.getElementById("conv-overlay"),
   convList: document.getElementById("conv-list"),
   autoContinue: document.getElementById("auto-continue"),
+  muteOutput: document.getElementById("mute-output"),
   statusBanner: document.getElementById("status-banner"),
   statusText: document.getElementById("status-text"),
   timer: document.getElementById("timer"),
   pulseRing: document.getElementById("pulse-ring"),
   error: document.getElementById("error"),
-  hint: document.getElementById("hint"),
 };
 
 let mediaRecorder = null;
@@ -57,6 +58,72 @@ let cachedConversations = [];
 let playbackChain = Promise.resolve();
 let activeTurnId = null;
 let activeTurnAbort = null;
+let ttsAudio = null;
+let ttsPlayedAny = false;
+
+const SILENT_WAV =
+  "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==";
+
+function useSharedTtsAudio() {
+  return platform.isIOS || /Android/i.test(navigator.userAgent);
+}
+
+function getTtsAudioElement() {
+  if (!ttsAudio) {
+    ttsAudio = new Audio();
+    ttsAudio.setAttribute("playsinline", "");
+    ttsAudio.preload = "auto";
+  }
+  return ttsAudio;
+}
+
+function unlockTtsAudio() {
+  if (!useSharedTtsAudio()) return;
+  const audio = getTtsAudioElement();
+  audio.volume = 1;
+  audio.src = SILENT_WAV;
+  audio.play().catch(() => {});
+}
+
+function playUrlOnElement(audio, url) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
+    const cleanup = () => {
+      audio.onended = null;
+      audio.onerror = null;
+      audio.oncanplaythrough = null;
+    };
+    const start = () => {
+      audio.onended = () => {
+        ttsPlayedAny = true;
+        cleanup();
+        finish(resolve);
+      };
+      audio.onerror = () => {
+        cleanup();
+        finish(reject, new Error("playback failed"));
+      };
+      audio.play().catch((err) => {
+        cleanup();
+        finish(reject, err);
+      });
+    };
+    cleanup();
+    audio.pause();
+    audio.src = url;
+    audio.load();
+    if (audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+      start();
+    } else {
+      audio.oncanplaythrough = () => start();
+    }
+  });
+}
 
 function formatConversationDate(iso) {
   if (!iso) return "";
@@ -197,38 +264,26 @@ function setAutoContinue(enabled) {
   localStorage.setItem(AUTO_CONTINUE_KEY, enabled ? "1" : "0");
 }
 
+function setMuted(enabled) {
+  localStorage.setItem(MUTE_KEY, enabled ? "1" : "0");
+}
+
+function getMuted() {
+  return localStorage.getItem(MUTE_KEY) === "1";
+}
+
+function shouldPlayAudio() {
+  return !getMuted();
+}
+
 function setUiPhase(phase) {
   document.body.dataset.phase = phase;
   els.pulseRing.classList.toggle("hidden", phase !== "recording");
   els.btnTalk.disabled = phase === "processing" || phase === "playing";
   els.timer.classList.toggle("hidden", phase !== "recording");
-  els.statusBanner.classList.toggle("hidden", phase !== "recording" && phase !== "processing");
+  els.statusBanner.classList.toggle("hidden", phase === "idle");
   const showStop = phase === "processing" || phase === "playing";
   els.btnStop.classList.toggle("hidden", !showStop);
-  updateTalkHint();
-}
-
-function updateTalkHint() {
-  const phase = document.body.dataset.phase;
-  if (phase === "recording") {
-    els.hint.textContent = "Tap when you're done speaking";
-    return;
-  }
-  if (phase === "processing") {
-    els.hint.textContent = "Waiting for LifeOS…";
-    return;
-  }
-  if (phase === "playing") {
-    els.hint.textContent = getAutoContinue()
-      ? "Playing reply — will listen again when done"
-      : "Playing reply — tap to talk when done";
-    return;
-  }
-  if (captureMode === "speech") {
-    els.hint.textContent = "Tap to talk · speech recognition";
-    return;
-  }
-  els.hint.textContent = "Tap to talk";
 }
 
 function showError(msg) {
@@ -241,7 +296,6 @@ function showBlockedNotice() {
   if (platform.isIOS) msg += " Try Safari on iPhone.";
   showError(msg);
   els.btnTalk.disabled = true;
-  els.hint.textContent = "";
 }
 
 function formatMicError(err) {
@@ -335,14 +389,39 @@ function clearThinking() {
 
 function stopAllAudio() {
   for (const a of activeAudios) {
+    a.onended = null;
+    a.onerror = null;
     a.pause();
     a.currentTime = 0;
   }
   activeAudios = [];
+  if (ttsAudio) {
+    ttsAudio.onended = null;
+    ttsAudio.onerror = null;
+    ttsAudio.oncanplaythrough = null;
+    ttsAudio.pause();
+    ttsAudio.currentTime = 0;
+  }
   isPlaying = false;
 }
 
+function isBenignPlaybackError(err) {
+  const name = err?.name || "";
+  const msg = (err?.message || "").toLowerCase();
+  return (
+    name === "NotAllowedError" ||
+    name === "AbortError" ||
+    msg.includes("not allowed by the user agent") ||
+    msg.includes("aborted")
+  );
+}
+
 async function playUrls(urls, { autoContinueAfter = false, replayEl = null } = {}) {
+  if (!shouldPlayAudio()) {
+    if (autoContinueAfter) await maybeAutoContinue();
+    else setUiPhase("idle");
+    return;
+  }
   stopAllAudio();
   if (!urls.length) return;
   isPlaying = true;
@@ -350,13 +429,19 @@ async function playUrls(urls, { autoContinueAfter = false, replayEl = null } = {
   setReplayingMessage(replayEl);
   try {
     for (const url of urls) {
-      await new Promise((resolve, reject) => {
-        const audio = new Audio(url);
-        activeAudios.push(audio);
-        audio.onended = () => resolve();
-        audio.onerror = () => reject(new Error("playback failed"));
-        audio.play().catch(reject);
-      });
+      if (useSharedTtsAudio()) {
+        const audio = getTtsAudioElement();
+        if (!activeAudios.includes(audio)) activeAudios.push(audio);
+        await playUrlOnElement(audio, url);
+      } else {
+        await new Promise((resolve, reject) => {
+          const audio = new Audio(url);
+          activeAudios.push(audio);
+          audio.onended = () => resolve();
+          audio.onerror = () => reject(new Error("playback failed"));
+          audio.play().catch(reject);
+        });
+      }
     }
   } finally {
     isPlaying = false;
@@ -371,6 +456,7 @@ async function playUrls(urls, { autoContinueAfter = false, replayEl = null } = {
 
 async function replayMessage(el) {
   if (document.body.dataset.phase === "processing") return;
+  if (!shouldPlayAudio()) return;
   const urls = parseAudioUrls(el);
   if (!urls.length) return;
   showError("");
@@ -403,7 +489,7 @@ async function maybeAutoContinue() {
     return;
   }
 
-  els.hint.textContent = "Starting next turn…";
+  els.statusText.textContent = "Listening…";
   try {
     await beginRecordingFromAuto();
   } catch (err) {
@@ -417,6 +503,11 @@ async function maybeAutoContinue() {
 }
 
 async function playSingleUrl(url) {
+  if (useSharedTtsAudio()) {
+    const audio = getTtsAudioElement();
+    if (!activeAudios.includes(audio)) activeAudios.push(audio);
+    return playUrlOnElement(audio, url);
+  }
   return new Promise((resolve, reject) => {
     const audio = new Audio(url);
     activeAudios.push(audio);
@@ -427,10 +518,13 @@ async function playSingleUrl(url) {
 }
 
 function enqueueClip(url) {
+  if (!shouldPlayAudio()) return playbackChain;
   playbackChain = playbackChain
     .then(() => playSingleUrl(url))
     .catch((err) => {
-      showError(err.message || String(err));
+      if (!isBenignPlaybackError(err)) {
+        showError(err.message || String(err));
+      }
     });
   return playbackChain;
 }
@@ -451,6 +545,7 @@ function parseSseChunk(buffer, onEvent) {
 
 async function consumeTurnStream(response) {
   playbackChain = Promise.resolve();
+  ttsPlayedAny = false;
   let doneData = null;
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -468,18 +563,22 @@ async function consumeTurnStream(response) {
     }
     if (event.type === "status_audio") {
       if (event.message) els.statusText.textContent = event.message;
-      if (!isPlaying) {
-        isPlaying = true;
-        setUiPhase("playing");
+      if (shouldPlayAudio()) {
+        if (!isPlaying) {
+          isPlaying = true;
+          setUiPhase("playing");
+        }
+        enqueueClip(event.url);
       }
-      enqueueClip(event.url);
     }
     if (event.type === "main_audio") {
-      if (!isPlaying) {
-        isPlaying = true;
-        setUiPhase("playing");
+      if (shouldPlayAudio()) {
+        if (!isPlaying) {
+          isPlaying = true;
+          setUiPhase("playing");
+        }
+        enqueueClip(event.url);
       }
-      enqueueClip(event.url);
     }
     if (event.type === "done") {
       doneData = event.data;
@@ -537,8 +636,12 @@ async function submitTurn({ blob, mime, transcript }) {
     if (data.response_text) appendMessage(data.response_text, "assistant", playbackUrls);
 
     await playbackChain;
-    isPlaying = false;
-    await maybeAutoContinue();
+    if (useSharedTtsAudio() && shouldPlayAudio() && playbackUrls.length && !ttsPlayedAny) {
+      await playUrls(playbackUrls, { autoContinueAfter: true });
+    } else {
+      isPlaying = false;
+      await maybeAutoContinue();
+    }
   } catch (err) {
     if (err?.name === "AbortError") {
       return;
@@ -914,6 +1017,7 @@ async function beginRecordingFromTap() {
 
 function onTalkClick(event) {
   event.preventDefault();
+  unlockTtsAudio();
   if (captureMode === "blocked") return;
   if (document.body.dataset.phase === "processing") return;
   if (isStarting) return;
@@ -952,7 +1056,9 @@ els.btnStop.addEventListener("click", () => {
 
 els.thread.addEventListener("click", (event) => {
   const msg = event.target.closest(".msg-assistant.msg-replayable");
-  if (msg) replayMessage(msg);
+  if (!msg) return;
+  unlockTtsAudio();
+  replayMessage(msg);
 });
 
 els.thread.addEventListener("keydown", (event) => {
@@ -984,7 +1090,15 @@ els.convList.addEventListener("click", (event) => {
 els.autoContinue.checked = getAutoContinue();
 els.autoContinue.addEventListener("change", () => {
   setAutoContinue(els.autoContinue.checked);
-  updateTalkHint();
+});
+
+els.muteOutput.checked = getMuted();
+els.muteOutput.addEventListener("change", () => {
+  setMuted(els.muteOutput.checked);
+  if (getMuted()) {
+    stopAllAudio();
+    if (document.body.dataset.phase === "playing") setUiPhase("idle");
+  }
 });
 
 window.addEventListener("pagehide", () => {
