@@ -4,52 +4,55 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f1419" />
-  <title>whisper-relay</title>
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>LifeOS · Whisper Relay</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
-<body>
+<body data-phase="idle">
   <main class="app">
-    <header class="header">
-      <h1>Voice</h1>
-      <p class="subtitle">Tap to talk · LifeOS</p>
+    <header class="topbar">
+      <div class="topbar-title">
+        <h1>LifeOS</h1>
+        <p class="subtitle">Whisper Relay</p>
+      </div>
+      <button id="btn-new-chat" type="button" class="btn-ghost" title="New conversation">
+        New chat
+      </button>
     </header>
 
-    <section id="state-recording" class="state hidden">
-      <div class="pulse-ring"></div>
-      <p class="state-label">Recording…</p>
-      <p id="timer" class="timer">0:00</p>
+    <section id="thread" class="thread" aria-live="polite">
+      <p id="thread-empty" class="thread-empty">Tap the button below to start talking.</p>
     </section>
 
-    <section id="state-processing" class="state hidden">
-      <div class="spinner"></div>
-      <p class="state-label">Thinking…</p>
-      <p id="status-text" class="status-text"></p>
-    </section>
-
-    <section id="state-result" class="state hidden">
-      <div class="card">
-        <h2>You said</h2>
-        <p id="transcript" class="text-block"></p>
-      </div>
-      <div class="card">
-        <h2>LifeOS</h2>
-        <p id="response" class="text-block"></p>
-      </div>
-      <div class="actions">
-        <button id="btn-replay" type="button" class="btn secondary">Replay</button>
-        <button id="btn-stop" type="button" class="btn secondary">Stop</button>
-      </div>
-    </section>
-
-    <div class="controls">
-      <p class="hint" id="hint">Tap to start recording</p>
-      <button id="btn-talk" type="button" class="btn talk" aria-label="Tap to talk">
-        Tap to talk
-      </button>
+    <div id="status-banner" class="status-banner hidden" role="status">
+      <span id="status-text" class="status-text"></span>
+      <span id="timer" class="timer hidden">0:00</span>
     </div>
 
-    <p id="error" class="error hidden"></p>
+    <footer class="dock">
+      <p id="hint" class="hint">Tap to talk</p>
+
+      <div class="shutter-wrap">
+        <div id="pulse-ring" class="pulse-ring hidden" aria-hidden="true"></div>
+        <button id="btn-talk" type="button" class="shutter" aria-label="Tap to talk">
+          <span class="shutter-inner" aria-hidden="true"></span>
+        </button>
+      </div>
+
+      <div class="dock-footer">
+        <button id="btn-stop" type="button" class="btn-ghost btn-stop hidden" title="Stop playback">
+          Stop
+        </button>
+        <label class="toggle-auto" for="auto-continue">
+          <input type="checkbox" id="auto-continue" />
+          <span class="toggle-track" aria-hidden="true"></span>
+          <span class="toggle-label">Auto</span>
+        </label>
+      </div>
+    </footer>
+
+    <p id="error" class="error hidden" role="alert"></p>
   </main>
-  <script src="/app.js?v=16"></script>
+  <script src="/app.js?v=20"></script>
 </body>
 </html>

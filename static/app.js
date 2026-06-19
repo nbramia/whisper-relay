@@ -1,4 +1,5 @@
 const STORAGE_KEY = "whisper_relay_conversation_id";
+const AUTO_CONTINUE_KEY = "whisper_relay_auto_continue";
 const MIN_RECORD_MS = 300;
 
 const MIME_CANDIDATES = [
@@ -13,16 +14,16 @@ const SpeechRecognitionCtor =
   window.SpeechRecognition || window.webkitSpeechRecognition || null;
 
 const els = {
-  recording: document.getElementById("state-recording"),
-  processing: document.getElementById("state-processing"),
-  result: document.getElementById("state-result"),
+  thread: document.getElementById("thread"),
+  threadEmpty: document.getElementById("thread-empty"),
   btnTalk: document.getElementById("btn-talk"),
-  btnReplay: document.getElementById("btn-replay"),
   btnStop: document.getElementById("btn-stop"),
-  transcript: document.getElementById("transcript"),
-  response: document.getElementById("response"),
+  btnNewChat: document.getElementById("btn-new-chat"),
+  autoContinue: document.getElementById("auto-continue"),
+  statusBanner: document.getElementById("status-banner"),
   statusText: document.getElementById("status-text"),
   timer: document.getElementById("timer"),
+  pulseRing: document.getElementById("pulse-ring"),
   error: document.getElementById("error"),
   hint: document.getElementById("hint"),
 };
@@ -39,17 +40,15 @@ let activeAudios = [];
 let lastPlayback = { urls: [], texts: null };
 let isRecording = false;
 let isStarting = false;
+let isPlaying = false;
 let selectedMime = "";
 let audioCtx = null;
 let audioSource = null;
 let audioProcessor = null;
 let pcmChunks = [];
 let micAcquireFailed = false;
+let thinkingEl = null;
 
-// Microphone availability on iOS depends on the browser and OS version rather
-// than being uniform, so capture support is feature-detected (below) instead of
-// gated by browser. `isIOS` only tailors the fallback message when a mic call
-// fails at runtime.
 function classifyPlatform() {
   const ua = navigator.userAgent;
   const isIOS =
@@ -69,9 +68,6 @@ function canRecordAudio() {
   );
 }
 
-// "record": getUserMedia + MediaRecorder upload → full linux-whisper polish
-// (desktop + any iOS browser that supports it). "speech": webkitSpeechRecognition
-// fallback (transcript only, no polish). "blocked": neither API available.
 function chooseCaptureMode() {
   if (canRecordAudio()) return "record";
   if (SpeechRecognitionCtor) return "speech";
@@ -79,10 +75,6 @@ function chooseCaptureMode() {
 }
 
 const captureMode = chooseCaptureMode();
-
-// iOS MediaRecorder frequently hands back empty/0-byte blobs even when
-// getUserMedia succeeds, so on iOS we capture raw PCM via Web Audio and encode
-// WAV ourselves instead of relying on MediaRecorder.
 const useWebAudioRecorder = platform.isIOS;
 
 function pickMimeType() {
@@ -101,14 +93,45 @@ function blobFilename(mime) {
   return "recording.webm";
 }
 
-function showState(name) {
-  for (const key of ["recording", "processing", "result"]) {
-    els[key].classList.toggle("hidden", key !== name);
+function getAutoContinue() {
+  return localStorage.getItem(AUTO_CONTINUE_KEY) === "1";
+}
+
+function setAutoContinue(enabled) {
+  localStorage.setItem(AUTO_CONTINUE_KEY, enabled ? "1" : "0");
+}
+
+function setUiPhase(phase) {
+  document.body.dataset.phase = phase;
+  els.pulseRing.classList.toggle("hidden", phase !== "recording");
+  els.btnTalk.disabled = phase === "processing" || phase === "playing";
+  els.timer.classList.toggle("hidden", phase !== "recording");
+  els.statusBanner.classList.toggle("hidden", phase !== "recording" && phase !== "processing");
+  els.btnStop.classList.toggle("hidden", phase !== "playing");
+  updateTalkHint();
+}
+
+function updateTalkHint() {
+  const phase = document.body.dataset.phase;
+  if (phase === "recording") {
+    els.hint.textContent = "Tap when you're done speaking";
+    return;
   }
-  const showMic = name === "idle" || name === "recording";
-  els.btnTalk.classList.toggle("hidden", !showMic);
-  els.hint.classList.toggle("hidden", !showMic);
-  updateTalkButtonUi();
+  if (phase === "processing") {
+    els.hint.textContent = "Waiting for LifeOS…";
+    return;
+  }
+  if (phase === "playing") {
+    els.hint.textContent = getAutoContinue()
+      ? "Playing reply — will listen again when done"
+      : "Playing reply — tap to talk when done";
+    return;
+  }
+  if (captureMode === "speech") {
+    els.hint.textContent = "Tap to talk · speech recognition";
+    return;
+  }
+  els.hint.textContent = "Tap to talk";
 }
 
 function showError(msg) {
@@ -139,22 +162,6 @@ function formatMicError(err) {
   return err?.message || String(err);
 }
 
-function updateTalkButtonUi() {
-  if (captureMode === "blocked") return;
-  if (isRecording) {
-    els.btnTalk.textContent = "Tap to send";
-    els.btnTalk.setAttribute("aria-label", "Tap to send");
-    els.hint.textContent = "Tap again when you're done speaking";
-    return;
-  }
-  els.btnTalk.textContent = "Tap to talk";
-  els.btnTalk.setAttribute("aria-label", "Tap to talk");
-  els.hint.textContent =
-    captureMode === "speech"
-      ? "Tap to start · speech recognition"
-      : "Tap to start recording";
-}
-
 function getConversationId() {
   return sessionStorage.getItem(STORAGE_KEY) || "";
 }
@@ -163,28 +170,80 @@ function setConversationId(id) {
   if (id) sessionStorage.setItem(STORAGE_KEY, id);
 }
 
+function clearConversation() {
+  sessionStorage.removeItem(STORAGE_KEY);
+  for (const child of [...els.thread.children]) {
+    if (child.id !== "thread-empty") child.remove();
+  }
+  thinkingEl = null;
+  els.threadEmpty.classList.remove("hidden");
+  stopAllAudio();
+  showError("");
+  setUiPhase("idle");
+}
+
+function hideThreadEmpty() {
+  if (els.threadEmpty) els.threadEmpty.classList.add("hidden");
+}
+
+function appendMessage(text, role) {
+  hideThreadEmpty();
+  const el = document.createElement("div");
+  el.className = `msg msg-${role}`;
+  el.textContent = text;
+  els.thread.appendChild(el);
+  els.thread.scrollTop = els.thread.scrollHeight;
+  return el;
+}
+
+function showThinking() {
+  hideThreadEmpty();
+  if (thinkingEl) thinkingEl.remove();
+  thinkingEl = document.createElement("div");
+  thinkingEl.className = "msg msg-assistant msg-thinking";
+  thinkingEl.textContent = "Thinking…";
+  els.thread.appendChild(thinkingEl);
+  els.thread.scrollTop = els.thread.scrollHeight;
+}
+
+function clearThinking() {
+  if (thinkingEl) {
+    thinkingEl.remove();
+    thinkingEl = null;
+  }
+}
+
 function stopAllAudio() {
   for (const a of activeAudios) {
     a.pause();
     a.currentTime = 0;
   }
   activeAudios = [];
+  isPlaying = false;
 }
 
 async function playUrls(urls) {
   stopAllAudio();
-  for (const url of urls) {
-    await new Promise((resolve, reject) => {
-      const audio = new Audio(url);
-      activeAudios.push(audio);
-      audio.onended = () => resolve();
-      audio.onerror = () => reject(new Error("playback failed"));
-      audio.play().catch(reject);
-    });
+  if (!urls.length) return;
+  isPlaying = true;
+  setUiPhase("playing");
+  try {
+    for (const url of urls) {
+      await new Promise((resolve, reject) => {
+        const audio = new Audio(url);
+        activeAudios.push(audio);
+        audio.onended = () => resolve();
+        audio.onerror = () => reject(new Error("playback failed"));
+        audio.play().catch(reject);
+      });
+    }
+  } finally {
+    isPlaying = false;
   }
 }
 
 function startTimer() {
+  els.timer.textContent = "0:00";
   timerInterval = setInterval(() => {
     const s = Math.floor((Date.now() - recordStartedAt) / 1000);
     const m = Math.floor(s / 60);
@@ -198,35 +257,59 @@ function stopTimer() {
   timerInterval = null;
 }
 
+async function maybeAutoContinue() {
+  if (!getAutoContinue()) {
+    setUiPhase("idle");
+    return;
+  }
+
+  els.hint.textContent = "Starting next turn…";
+  try {
+    await beginRecordingFromAuto();
+  } catch (err) {
+    setUiPhase("idle");
+    if (err?.name === "NotAllowedError") {
+      showError("Tap the button to continue — Auto needs a tap on this device.");
+    } else {
+      showError(err?.message || String(err));
+    }
+  }
+}
+
 async function submitTurn({ blob, mime, transcript }) {
-  showState("processing");
-  els.statusText.textContent = "";
+  setUiPhase("processing");
+  els.statusText.textContent = "Thinking…";
+  showThinking();
 
   const form = new FormData();
-  if (blob) {
-    form.append("audio", blob, blobFilename(mime));
-  }
-  if (transcript) {
-    form.append("transcript", transcript);
-  }
+  if (blob) form.append("audio", blob, blobFilename(mime));
+  if (transcript) form.append("transcript", transcript);
   const convId = getConversationId();
   if (convId) form.append("conversation_id", convId);
 
   const res = await fetch("/api/voice/turn", { method: "POST", body: form });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    clearThinking();
     throw new Error(data.detail || `Request failed (${res.status})`);
   }
 
   if (data.conversation_id) setConversationId(data.conversation_id);
 
-  els.transcript.textContent = data.transcript || "";
-  els.response.textContent = data.response_text || "";
-  showState("result");
+  clearThinking();
+  if (data.transcript) appendMessage(data.transcript, "user");
+  if (data.response_text) appendMessage(data.response_text, "assistant");
 
-  const urls = [...(data.status_audio_urls || []), data.audio_url].filter(Boolean);
-  lastPlayback = { urls, texts: data };
-  await playUrls(urls);
+  lastPlayback = { urls: [...(data.status_audio_urls || []), data.audio_url].filter(Boolean), texts: data };
+
+  const urls = lastPlayback.urls;
+  if (urls.length) {
+    await playUrls(urls);
+  } else {
+    setUiPhase("idle");
+  }
+
+  await maybeAutoContinue();
 }
 
 function formatSpeechError(event) {
@@ -270,7 +353,7 @@ function startSpeechRecognition() {
     isRecording = false;
     sendAfterSpeechEnd = false;
     stopTimer();
-    showState("idle");
+    setUiPhase("idle");
   };
 
   recognition.onend = async () => {
@@ -278,21 +361,20 @@ function startSpeechRecognition() {
       if (isRecording) {
         isRecording = false;
         stopTimer();
-        showState("idle");
+        setUiPhase("idle");
       }
       return;
     }
 
     sendAfterSpeechEnd = false;
     isRecording = false;
-    els.btnTalk.classList.remove("pressed");
     stopTimer();
 
     const text = speechParts.join(" ").trim();
     speechParts = [];
     if (!text) {
       showError("No speech heard — tap to talk and speak clearly.");
-      showState("idle");
+      setUiPhase("idle");
       return;
     }
 
@@ -300,7 +382,7 @@ function startSpeechRecognition() {
       await submitTurn({ transcript: text });
     } catch (err) {
       showError(err.message || String(err));
-      showState("idle");
+      setUiPhase("idle");
     }
   };
 
@@ -308,8 +390,8 @@ function startSpeechRecognition() {
     recognition.start();
     recordStartedAt = Date.now();
     isRecording = true;
-    els.btnTalk.classList.add("pressed");
-    showState("recording");
+    els.statusText.textContent = "Recording…";
+    setUiPhase("recording");
     startTimer();
   } catch (err) {
     showError(err.message || String(err));
@@ -326,7 +408,7 @@ function stopSpeechRecognition() {
     showError(err.message || String(err));
     isRecording = false;
     stopTimer();
-    showState("idle");
+    setUiPhase("idle");
   }
 }
 
@@ -354,11 +436,6 @@ function setupMediaRecorder(stream) {
   };
 }
 
-// iOS can transiently reject getUserMedia when re-acquiring the mic right after
-// the previous stream was released (a race with audio-session teardown), not a
-// real denial. Permission is already granted for the session, so a short delayed
-// retry succeeds without another user gesture — this recovers invisibly instead
-// of asking the user to tap again. Non-permission errors are not retried.
 async function acquireMicStream() {
   const backoffMs = [0, 200, 400, 800];
   let lastErr;
@@ -399,8 +476,8 @@ async function beginRecording(stream) {
   mediaRecorder.start(250);
   recordStartedAt = Date.now();
   isRecording = true;
-  els.btnTalk.classList.add("pressed");
-  showState("recording");
+  els.statusText.textContent = "Recording…";
+  setUiPhase("recording");
   startTimer();
 }
 
@@ -440,13 +517,13 @@ function encodeWav(samples, sampleRate) {
   view.setUint32(4, 36 + samples.length * 2, true);
   writeStr(8, "WAVE");
   writeStr(12, "fmt ");
-  view.setUint32(16, 16, true); // PCM fmt chunk size
-  view.setUint16(20, 1, true); // PCM
-  view.setUint16(22, 1, true); // mono
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
   view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true); // byte rate
-  view.setUint16(32, 2, true); // block align
-  view.setUint16(34, 16, true); // bits per sample
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
   writeStr(36, "data");
   view.setUint32(40, samples.length * 2, true);
   let off = 44;
@@ -458,8 +535,6 @@ function encodeWav(samples, sampleRate) {
   return new Blob([view], { type: "audio/wav" });
 }
 
-// iOS requires the AudioContext to be created/resumed inside a user gesture, so
-// the tap handler calls this synchronously before the async mic request.
 function ensureAudioContext() {
   const Ctx = window.AudioContext || window.webkitAudioContext;
   if (!Ctx) return;
@@ -477,22 +552,14 @@ function beginWebAudioRecording(stream) {
     pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
   };
   audioSource.connect(audioProcessor);
-  // ScriptProcessor only fires onaudioprocess while connected to a destination;
-  // we never fill the output buffer, so playback stays silent (no echo).
   audioProcessor.connect(audioCtx.destination);
   recordStartedAt = Date.now();
   isRecording = true;
-  els.btnTalk.classList.add("pressed");
-  showState("recording");
+  els.statusText.textContent = "Recording…";
+  setUiPhase("recording");
   startTimer();
 }
 
-// Fully release the capture chain when a recording ends. On iOS a live mic
-// track keeps the audio session in play-and-record mode, which degrades the
-// <audio> playback of the TTS reply (scratchy/thin). Stopping the tracks and
-// closing the context reverts iOS to a clean playback session; both are
-// re-acquired in the next recording gesture (getUserMedia does not re-prompt
-// within the same session).
 function releaseCapture() {
   try {
     if (audioProcessor) {
@@ -551,7 +618,6 @@ async function stopRecordingAndSend() {
   }
 
   isRecording = false;
-  els.btnTalk.classList.remove("pressed");
   stopTimer();
 
   try {
@@ -559,22 +625,55 @@ async function stopRecordingAndSend() {
     await submitTurn({ blob, mime });
   } catch (err) {
     showError(err.message || String(err));
-    showState("idle");
+    setUiPhase("idle");
+  }
+}
+
+async function beginRecordingFromAuto() {
+  if (captureMode === "speech") {
+    startSpeechRecognition();
+    return;
+  }
+
+  if (useWebAudioRecorder) ensureAudioContext();
+  const stream = await requestMicInGesture();
+  if (useWebAudioRecorder) beginWebAudioRecording(stream);
+  else beginRecording(stream);
+  micAcquireFailed = false;
+}
+
+async function beginRecordingFromTap() {
+  showError("");
+  isStarting = true;
+  try {
+    await beginRecordingFromAuto();
+  } catch (err) {
+    if (err?.name === "NotAllowedError" && !micAcquireFailed) {
+      micAcquireFailed = true;
+      showError("Microphone wasn't ready — tap to talk again.");
+    } else {
+      showError(formatMicError(err));
+    }
+  } finally {
+    isStarting = false;
   }
 }
 
 function onTalkClick(event) {
   event.preventDefault();
   if (captureMode === "blocked") return;
-  if (!els.processing.classList.contains("hidden")) return;
+  if (document.body.dataset.phase === "processing") return;
   if (isStarting) return;
 
+  if (isPlaying) {
+    stopAllAudio();
+    setUiPhase("idle");
+    return;
+  }
+
   if (captureMode === "speech") {
-    if (isRecording) {
-      stopSpeechRecognition();
-    } else {
-      startSpeechRecognition();
-    }
+    if (isRecording) stopSpeechRecognition();
+    else startSpeechRecognition();
     return;
   }
 
@@ -583,39 +682,28 @@ function onTalkClick(event) {
     return;
   }
 
-  showError("");
-  isStarting = true;
-  if (useWebAudioRecorder) ensureAudioContext();
-  requestMicInGesture()
-    .then((stream) => {
-      if (useWebAudioRecorder) beginWebAudioRecording(stream);
-      else beginRecording(stream);
-      micAcquireFailed = false;
-    })
-    .catch((err) => {
-      // iOS can transiently reject the first getUserMedia after the mic was
-      // released between turns; a second tap succeeds. Only surface the full
-      // permission guidance if acquisition fails twice in a row.
-      if (err?.name === "NotAllowedError" && !micAcquireFailed) {
-        micAcquireFailed = true;
-        showError("Microphone wasn't ready — tap to talk again.");
-      } else {
-        showError(formatMicError(err));
-      }
-    })
-    .finally(() => {
-      isStarting = false;
-    });
+  beginRecordingFromTap();
 }
 
 els.btnTalk.addEventListener("click", onTalkClick, false);
 els.btnTalk.addEventListener("contextmenu", (e) => e.preventDefault());
 
-els.btnReplay.addEventListener("click", () => {
-  if (lastPlayback.urls.length) playUrls(lastPlayback.urls).catch((e) => showError(e.message));
+els.btnStop.addEventListener("click", () => {
+  stopAllAudio();
+  setUiPhase("idle");
+  maybeAutoContinue();
 });
 
-els.btnStop.addEventListener("click", stopAllAudio);
+els.btnNewChat.addEventListener("click", () => {
+  if (document.body.dataset.phase === "processing") return;
+  clearConversation();
+});
+
+els.autoContinue.checked = getAutoContinue();
+els.autoContinue.addEventListener("change", () => {
+  setAutoContinue(els.autoContinue.checked);
+  updateTalkHint();
+});
 
 window.addEventListener("pagehide", () => {
   micStream?.getTracks().forEach((t) => t.stop());
@@ -625,7 +713,7 @@ window.addEventListener("pagehide", () => {
   audioCtx = null;
 });
 
-showState("idle");
+setUiPhase("idle");
 
 if (captureMode === "blocked") {
   showBlockedNotice();
