@@ -6,52 +6,56 @@ whisper-relay turns speech into text, hands that text to LifeOS exactly as if yo
 
 ## How it fits together
 
-This project is designed to work alongside two other open-source repos:
+whisper-relay sits between your phone and two services on your Linux workstation:
 
-| Repo | Role in the voice flow |
-|------|------------------------|
-| **linux-whisper** | Local speech-to-text. Transcribes and polishes utterances on the Linux box — same pipeline as the desktop dictation app. |
-| **LifeOS** | Personal agent harness. Receives the transcript via its existing chat API, runs the orchestrator (tools, memory, planning, agent spawns), and returns text responses. |
-| **whisper-relay** (this repo) | Voice transport. Records audio from a mobile browser, normalizes it, calls linux-whisper for STT, submits text to LifeOS, synthesizes responses to speech, and serves audio back to the phone. |
+| Component | Role |
+|-----------|------|
+| **Mobile browser** | Tap-to-talk UI over Tailscale HTTPS |
+| **whisper-relay** (this repo) | Normalize audio, transcribe, call LifeOS, synthesize speech, return audio |
+| **linux-whisper** | Local STT + polish (same pipeline as desktop dictation) |
+| **LifeOS** | Orchestrator — tools, memory, planning, engine handoffs |
 
+```mermaid
+flowchart TB
+  phone["Mobile browser"]
+
+  subgraph relay["whisper-relay"]
+    direction TB
+    norm["Normalize audio<br/>ffmpeg → 16 kHz mono"]
+    stt["Transcribe + polish<br/>linux-whisper"]
+    client["LifeOS client<br/>POST /api/ask/stream"]
+    tts["Synthesize speech<br/>Kokoro TTS"]
+    norm --> stt --> client --> tts
+  end
+
+  lw["linux-whisper"]
+  lifeos["LifeOS"]
+
+  phone -->|"upload utterance"| norm
+  tts -->|"audio + transcript + text"| phone
+  stt -.->|"library on same machine"| lw
+  client <-->|"text in · SSE out<br/>handoffs via /api/chat/handoff"| lifeos
 ```
-phone browser (tap-to-talk)
-        │
-        ▼
-  whisper-relay          ← you are here
-   ┌────────────┐
-   │ ffmpeg     │  normalize webm / mp4 / wav → 16 kHz mono
-   │ linux-     │  STT + polish (desktop parity)
-   │  whisper   │
-   │ LifeOS     │  POST /api/ask/stream  (same as chat/Telegram)
-   │  client    │  POST /api/chat/handoff on engine handoffs
-   │ TTS        │  text → audio
-   └────────────┘
-        │
-        ▼
-   audio + transcript + response text
-```
 
-## Phase 1 scope
+**One turn:** record on the phone → whisper-relay runs the pipeline above → you hear the reply and can keep talking in the same LifeOS conversation thread.
 
-**In scope:**
+## What it does
 
 - Tap-to-talk from a phone browser (Chrome or Safari, iOS or Android) over Tailscale
-- One utterance per HTTP turn (`POST /api/voice/turn`)
-- Spoken tool-status updates during long orchestrator turns
-- Multi-turn conversation via LifeOS `conversation_id`
-- Engine handoffs (`claude_intent` → `/api/chat/handoff`) — same as web chat
+- Multi-turn conversations — LifeOS `conversation_id` carries context across turns
+- Spoken status updates while LifeOS works through long orchestrator turns
+- Engine handoffs (`claude_intent` → `/api/chat/handoff`) — same behavior as web chat
+- Headless autostart on your workstation via systemd
 
-**Out of scope (Phase 1):**
+## What it does not do
 
-- Continuous listening, streaming STT, WebRTC
-- Native mobile app
-- Third-party voice platforms (Vapi, Retell, Agora, Twilio, LiveKit, OpenAI Realtime)
-- Any agent reasoning, tool definitions, or orchestration logic inside whisper-relay
+whisper-relay is transport only. It does not:
 
-## Status
+- Run an agent, define tools, or classify intent
+- Listen continuously or stream STT in real time
+- Replace LifeOS or linux-whisper — it calls them
 
-Phase 1 is implemented and running: tap-to-talk from a phone browser over Tailscale → STT with desktop-parity polish → LifeOS round-trip → spoken response, verified end-to-end on desktop and iPhone. Browsers that can record audio upload it for the full STT + polish pipeline; the capture path is feature-detected per device. Architecture decisions are in [`docs/adr/`](docs/adr/).
+Not supported today: native mobile app, WebRTC, third-party voice platforms (Vapi, Retell, Twilio, LiveKit, OpenAI Realtime, etc.).
 
 ## Quick start
 
