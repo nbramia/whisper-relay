@@ -35,6 +35,8 @@ class TTSAdapter(Protocol):
         clip_id: str = "main",
     ) -> TTSResult: ...
 
+    async def warmup(self) -> None: ...
+
 
 def _write_silent_wav(path: Path, duration_s: float = 0.25, sample_rate: int = 24_000) -> float:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -62,6 +64,9 @@ class NullTTSAdapter:
         duration = min(0.5, 0.05 + len(clean) * 0.02)
         dur = await asyncio.to_thread(_write_silent_wav, out_path, duration)
         return TTSResult(path=out_path, mime_type="audio/wav", duration_s=dur, backend="null")
+
+    async def warmup(self) -> None:
+        return
 
 
 class KokoroTTSAdapter:
@@ -125,6 +130,10 @@ class KokoroTTSAdapter:
     ) -> TTSResult:
         async with self._lock:
             return await asyncio.to_thread(self._synthesize_sync, text, out_path)
+
+    async def warmup(self) -> None:
+        async with self._lock:
+            await asyncio.to_thread(self._ensure_loaded)
 
 
 def build_tts_adapter(settings: Settings) -> TTSAdapter:

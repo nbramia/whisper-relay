@@ -39,6 +39,10 @@ class TurnPipeline:
         self._lifeos = lifeos
         self._tts = tts
 
+    async def warmup(self) -> None:
+        await self._stt.warmup()
+        await self._tts.warmup()
+
     async def run_turn(
         self,
         audio_bytes: bytes | None,
