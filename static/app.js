@@ -298,7 +298,7 @@ function renderConversationMessages(messages) {
   }
   thinkingEl = null;
   if (!messages?.length) {
-    els.threadEmpty.classList.remove("hidden");
+    if (els.threadEmpty) els.threadEmpty.classList.remove("hidden");
     return;
   }
   for (const msg of messages) {
@@ -560,7 +560,7 @@ function clearConversation() {
     if (child.id !== "thread-empty") child.remove();
   }
   thinkingEl = null;
-  els.threadEmpty.classList.remove("hidden");
+  if (els.threadEmpty) els.threadEmpty.classList.remove("hidden");
   stopAllAudio();
   showError("");
   setUiPhase("idle");

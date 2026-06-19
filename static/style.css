@@ -255,7 +255,7 @@ body {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(var(--shutter-lift) + var(--shutter-size) + var(--safe-bottom) + 0.45rem);
+  bottom: calc(var(--shutter-lift) + var(--shutter-size) + var(--safe-bottom) + 1.6rem);
   z-index: 9;
   display: flex;
   align-items: center;
@@ -436,7 +436,7 @@ body[data-phase="playing"] .shutter {
   position: fixed;
   left: 1rem;
   right: 1rem;
-  bottom: calc(var(--shutter-lift) + var(--shutter-size) + var(--safe-bottom) + 2.85rem);
+  bottom: calc(var(--shutter-lift) + var(--shutter-size) + var(--safe-bottom) + 4rem);
   z-index: 11;
   margin: 0 auto;
   max-width: 688px;
