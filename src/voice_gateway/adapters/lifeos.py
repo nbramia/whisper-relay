@@ -46,6 +46,10 @@ class LifeOSClient(Protocol):
         on_status: StatusCallback | None = None,
     ) -> LifeOSResult: ...
 
+    async def list_conversations(self) -> dict[str, Any]: ...
+
+    async def get_conversation(self, conversation_id: str) -> dict[str, Any]: ...
+
 
 class HTTPLifeOSClient:
     def __init__(self, base_url: str, timeout_s: float = 300.0) -> None:
@@ -154,3 +158,17 @@ class HTTPLifeOSClient:
             message=message,
             session_id=data.get("session_id", ""),
         )
+
+    async def list_conversations(self) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(f"{self._base_url}/api/conversations")
+            if resp.status_code != 200:
+                raise LifeOSError(f"LifeOS returned HTTP {resp.status_code}")
+            return resp.json()
+
+    async def get_conversation(self, conversation_id: str) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(f"{self._base_url}/api/conversations/{conversation_id}")
+            if resp.status_code != 200:
+                raise LifeOSError(f"LifeOS returned HTTP {resp.status_code}")
+            return resp.json()

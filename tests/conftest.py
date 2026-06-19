@@ -34,6 +34,41 @@ class StubLifeOSClient:
             statuses=["Searching your calendar…"],
         )
 
+    async def list_conversations(self):
+        return {
+            "conversations": [
+                {
+                    "id": "conv-test-1",
+                    "title": "Test conversation",
+                    "created_at": "2026-01-01T00:00:00",
+                    "updated_at": "2026-01-02T00:00:00",
+                    "message_count": 2,
+                }
+            ]
+        }
+
+    async def get_conversation(self, conversation_id: str):
+        return {
+            "id": conversation_id,
+            "title": "Test conversation",
+            "created_at": "2026-01-01T00:00:00",
+            "updated_at": "2026-01-02T00:00:00",
+            "messages": [
+                {
+                    "id": "m1",
+                    "role": "user",
+                    "content": "Hello",
+                    "created_at": "2026-01-01T00:00:00",
+                },
+                {
+                    "id": "m2",
+                    "role": "assistant",
+                    "content": "Hi there",
+                    "created_at": "2026-01-01T00:01:00",
+                },
+            ],
+        }
+
 
 @pytest.fixture
 def tmp_settings(tmp_path: Path) -> Settings:

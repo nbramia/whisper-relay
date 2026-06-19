@@ -11,6 +11,9 @@
 <body data-phase="idle">
   <main class="app">
     <header class="topbar">
+      <button id="btn-chats" type="button" class="btn-ghost" title="Conversations">
+        Chats
+      </button>
       <div class="topbar-title">
         <h1>LifeOS</h1>
         <p class="subtitle">Whisper Relay</p>
@@ -19,6 +22,15 @@
         New chat
       </button>
     </header>
+
+    <div id="conv-overlay" class="conv-overlay hidden" aria-hidden="true"></div>
+    <aside id="conv-sidebar" class="conv-sidebar hidden" aria-label="Conversations">
+      <div class="conv-sidebar-header">
+        <h2>Conversations</h2>
+        <button id="btn-close-sidebar" type="button" class="btn-ghost">Close</button>
+      </div>
+      <ul id="conv-list" class="conv-list"></ul>
+    </aside>
 
     <section id="thread" class="thread" aria-live="polite">
       <p id="thread-empty" class="thread-empty">Tap the button below to start talking.</p>
@@ -53,6 +65,6 @@
 
     <p id="error" class="error hidden" role="alert"></p>
   </main>
-  <script src="/app.js?v=21"></script>
+  <script src="/app.js?v=22"></script>
 </body>
 </html>

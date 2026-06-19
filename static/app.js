@@ -19,6 +19,11 @@ const els = {
   btnTalk: document.getElementById("btn-talk"),
   btnStop: document.getElementById("btn-stop"),
   btnNewChat: document.getElementById("btn-new-chat"),
+  btnChats: document.getElementById("btn-chats"),
+  btnCloseSidebar: document.getElementById("btn-close-sidebar"),
+  convSidebar: document.getElementById("conv-sidebar"),
+  convOverlay: document.getElementById("conv-overlay"),
+  convList: document.getElementById("conv-list"),
   autoContinue: document.getElementById("auto-continue"),
   statusBanner: document.getElementById("status-banner"),
   statusText: document.getElementById("status-text"),
@@ -48,6 +53,94 @@ let audioProcessor = null;
 let pcmChunks = [];
 let micAcquireFailed = false;
 let thinkingEl = null;
+let cachedConversations = [];
+
+function formatConversationDate(iso) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
+
+function openConversationSidebar() {
+  els.convSidebar.classList.remove("hidden");
+  els.convOverlay.classList.remove("hidden");
+  loadConversationList().catch(() => showError("Could not load conversations."));
+}
+
+function closeConversationSidebar() {
+  els.convSidebar.classList.add("hidden");
+  els.convOverlay.classList.add("hidden");
+}
+
+function renderConversationList(conversations) {
+  const currentId = getConversationId();
+  if (!conversations.length) {
+    els.convList.innerHTML = '<li class="conv-empty">No conversations yet</li>';
+    return;
+  }
+  els.convList.innerHTML = conversations
+    .map(
+      (conv) => `
+      <li>
+        <button type="button" class="conv-item ${conv.id === currentId ? "active" : ""}" data-id="${conv.id}">
+          <div class="conv-item-title">${escapeHtml(conv.title || "New conversation")}</div>
+          <div class="conv-item-date">${escapeHtml(formatConversationDate(conv.updated_at))}</div>
+        </button>
+      </li>`
+    )
+    .join("");
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+async function loadConversationList() {
+  const res = await fetch("/api/voice/conversations");
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
+  cachedConversations = data.conversations || [];
+  renderConversationList(cachedConversations);
+}
+
+function renderConversationMessages(messages) {
+  for (const child of [...els.thread.children]) {
+    if (child.id !== "thread-empty") child.remove();
+  }
+  thinkingEl = null;
+  if (!messages?.length) {
+    els.threadEmpty.classList.remove("hidden");
+    return;
+  }
+  for (const msg of messages) {
+    const role = msg.role === "user" ? "user" : "assistant";
+    if (msg.content) appendMessage(msg.content, role);
+  }
+}
+
+async function loadConversation(conversationId) {
+  const res = await fetch(`/api/voice/conversations/${conversationId}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
+  setConversationId(data.id);
+  renderConversationMessages(data.messages || []);
+  closeConversationSidebar();
+  renderConversationList(cachedConversations);
+  showError("");
+  setUiPhase("idle");
+}
 
 function classifyPlatform() {
   const ua = navigator.userAgent;
@@ -180,6 +273,7 @@ function clearConversation() {
   stopAllAudio();
   showError("");
   setUiPhase("idle");
+  renderConversationList(cachedConversations);
 }
 
 function hideThreadEmpty() {
@@ -749,6 +843,19 @@ els.thread.addEventListener("keydown", (event) => {
 els.btnNewChat.addEventListener("click", () => {
   if (document.body.dataset.phase === "processing") return;
   clearConversation();
+  closeConversationSidebar();
+});
+
+els.btnChats.addEventListener("click", () => openConversationSidebar());
+els.btnCloseSidebar.addEventListener("click", () => closeConversationSidebar());
+els.convOverlay.addEventListener("click", () => closeConversationSidebar());
+
+els.convList.addEventListener("click", (event) => {
+  const btn = event.target.closest(".conv-item");
+  if (!btn) return;
+  const id = btn.dataset.id;
+  if (!id) return;
+  loadConversation(id).catch((err) => showError(err.message || String(err)));
 });
 
 els.autoContinue.checked = getAutoContinue();

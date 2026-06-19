@@ -13,7 +13,7 @@ from voice_gateway.adapters.stt import LinuxWhisperSTTAdapter
 from voice_gateway.adapters.tts import build_tts_adapter
 from voice_gateway.config import Settings, get_settings
 from voice_gateway.logging import configure_logging
-from voice_gateway.routes import health, voice
+from voice_gateway.routes import conversations, health, voice
 from voice_gateway.storage import TurnStorage
 from voice_gateway.turns import TurnPipeline
 
@@ -44,14 +44,17 @@ def create_app(
         pipeline = TurnPipeline(settings, storage, stt, lifeos, tts)
     else:
         storage = pipeline._storage
+        lifeos = pipeline._lifeos
 
     app = FastAPI(title="whisper-relay", version="0.1.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.storage = storage
     app.state.pipeline = pipeline
+    app.state.lifeos_client = lifeos
 
     app.include_router(health.router)
     app.include_router(voice.router)
+    app.include_router(conversations.router)
 
     if STATIC_DIR.is_dir():
         app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
