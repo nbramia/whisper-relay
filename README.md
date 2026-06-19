@@ -1,43 +1,46 @@
 # whisper-relay
 
-A voice transport layer for **LifeOS** — push-to-talk from your phone, spoken answers back.
+A voice transport layer for **LifeOS** and optional **OpenClaw Agent** mode — push-to-talk from your phone, spoken answers back.
 
-whisper-relay turns speech into text, hands that text to LifeOS exactly as if you had typed it in the web chat or sent it via Telegram, then speaks LifeOS's reply. It does not run an agent, duplicate LifeOS tools, or make routing decisions. LifeOS behaves the same regardless of whether input came from a keyboard, Telegram, or your voice.
+whisper-relay turns speech into text, submits that text to a **text backend** (LifeOS or the OpenClaw voice-adapter in [agents](https://github.com/nbramia/agents)), then speaks the reply. It does not run an agent, duplicate orchestrator tools, or make routing decisions. The active backend behaves like web chat or Telegram from the user's perspective — keyboard, Telegram, or voice are interchangeable inputs.
 
 ## How it fits together
 
-whisper-relay sits between your phone and two services on your Linux workstation:
+whisper-relay sits between your phone and local services on your Linux workstation:
 
 | Component | Role |
 |-----------|------|
-| **Mobile browser** | Tap-to-talk UI over Tailscale HTTPS |
-| **whisper-relay** (this repo) | Normalize audio, transcribe, call LifeOS, synthesize speech, return audio |
+| **Mobile browser** | Tap-to-talk UI over Tailscale HTTPS; **LifeOS \| Agent** toggle |
+| **whisper-relay** (this repo) | Normalize audio, transcribe, route to text backend, synthesize speech |
 | **linux-whisper** | Local STT + polish (same pipeline as desktop dictation) |
-| **LifeOS** | Orchestrator — tools, memory, planning, engine handoffs |
+| **LifeOS** (LifeOS mode) | Orchestrator — tools, memory, planning, engine handoffs |
+| **voice-adapter** (Agent mode) | OpenClaw HTTP bridge in agents repo — session + escalation ([ADR-004](docs/adr/004-dual-text-backends.md)) |
 
 ```mermaid
 flowchart TB
-  phone["Mobile browser"]
+  phone["Mobile browser<br/>LifeOS | Agent toggle"]
 
   subgraph relay["whisper-relay"]
     direction TB
     norm["Normalize audio<br/>ffmpeg → 16 kHz mono"]
     stt["Transcribe + polish<br/>linux-whisper"]
-    client["LifeOS client<br/>POST /api/ask/stream"]
+    router["Text backend router"]
     tts["Synthesize speech<br/>Kokoro TTS"]
-    norm --> stt --> client --> tts
+    norm --> stt --> router --> tts
   end
 
   lw["linux-whisper"]
-  lifeos["LifeOS"]
+  lifeos["LifeOS<br/>POST /api/ask/stream"]
+  agent["voice-adapter<br/>agents :8100"]
 
   phone -->|"upload utterance"| norm
   tts -->|"audio + transcript + text"| phone
   stt -.->|"library on same machine"| lw
-  client <-->|"text in · SSE out<br/>handoffs via /api/chat/handoff"| lifeos
+  router -->|"backend=lifeos<br/>SSE · handoffs"| lifeos
+  router -->|"backend=agent<br/>SSE subset"| agent
 ```
 
-**One turn:** record on the phone → whisper-relay runs the pipeline above → you hear the reply and can keep talking in the same LifeOS conversation thread.
+**One turn:** record on the phone → whisper-relay runs STT/TTS and the selected text backend → you hear the reply and keep talking in that backend's conversation thread (separate `conversation_id` per LifeOS vs Agent).
 
 ## What it does
 

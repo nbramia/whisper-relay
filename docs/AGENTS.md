@@ -2,7 +2,7 @@
 
 > **Audience:** Contributors and AI agents editing documentation
 > **Status:** Complete
-> **Last Updated:** 2026-06-18
+> **Last Updated:** 2026-06-19
 
 Documentation is a governing artifact, not an afterthought. Specs and ADRs are written before (or alongside) implementation; code is reviewed against them.
 
@@ -65,6 +65,7 @@ When design changes land in a PR:
 1. Update the relevant doc in the **same PR**
 2. Bump `Last Updated`
 3. Check bidirectional links in Related Documents
+4. **Architecture topology** — when integration surfaces change (new text backend, adapter, or external consumer), update root `README.md` intro, component table, and mermaid diagram in the same PR. Detailed contracts stay in ADRs and upstream adapter READMEs — link, don't duplicate API shapes.
 
 Don't over-document routine changes. Update docs when the **design** changes, not when a task checkbox flips.
 
