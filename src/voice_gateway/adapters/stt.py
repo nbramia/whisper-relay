@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 class STTAdapter(Protocol):
     async def transcribe(self, pcm_bytes: bytes, *, turn_id: str) -> tuple[str, dict[str, int]]: ...
 
+    async def warmup(self) -> None: ...
+
 
 class LinuxWhisperSTTAdapter:
     """STT + full polish pipeline — desktop parity."""
@@ -82,6 +84,10 @@ class LinuxWhisperSTTAdapter:
         async with self._lock:
             return await asyncio.to_thread(self._transcribe_sync, pcm_bytes)
 
+    async def warmup(self) -> None:
+        async with self._lock:
+            await asyncio.to_thread(self._ensure_loaded)
+
 
 class StubSTTAdapter:
     def __init__(self, transcript: str = "hello world") -> None:
@@ -89,3 +95,6 @@ class StubSTTAdapter:
 
     async def transcribe(self, pcm_bytes: bytes, *, turn_id: str) -> tuple[str, dict[str, int]]:
         return self.transcript, {"stt_ms": 1, "polish_ms": 0}
+
+    async def warmup(self) -> None:
+        return

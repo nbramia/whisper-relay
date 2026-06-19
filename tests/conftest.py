@@ -24,7 +24,7 @@ class StubLifeOSClient:
         self.answer = answer
         self.last_question: str | None = None
 
-    async def ask(self, question, *, conversation_id, turn_id, on_status=None):
+    async def ask(self, question, *, conversation_id, turn_id, on_status=None, cancel=None):
         self.last_question = question
         if on_status:
             await on_status("Searching your calendar…")
@@ -33,6 +33,41 @@ class StubLifeOSClient:
             conversation_id=conversation_id or "conv-test-1",
             statuses=["Searching your calendar…"],
         )
+
+    async def list_conversations(self):
+        return {
+            "conversations": [
+                {
+                    "id": "conv-test-1",
+                    "title": "Test conversation",
+                    "created_at": "2026-01-01T00:00:00",
+                    "updated_at": "2026-01-02T00:00:00",
+                    "message_count": 2,
+                }
+            ]
+        }
+
+    async def get_conversation(self, conversation_id: str):
+        return {
+            "id": conversation_id,
+            "title": "Test conversation",
+            "created_at": "2026-01-01T00:00:00",
+            "updated_at": "2026-01-02T00:00:00",
+            "messages": [
+                {
+                    "id": "m1",
+                    "role": "user",
+                    "content": "Hello",
+                    "created_at": "2026-01-01T00:00:00",
+                },
+                {
+                    "id": "m2",
+                    "role": "assistant",
+                    "content": "Hi there",
+                    "created_at": "2026-01-01T00:01:00",
+                },
+            ],
+        }
 
 
 @pytest.fixture

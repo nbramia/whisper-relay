@@ -1,5 +1,6 @@
 const STORAGE_KEY = "whisper_relay_conversation_id";
 const AUTO_CONTINUE_KEY = "whisper_relay_auto_continue";
+const MUTE_KEY = "whisper_relay_mute";
 const MIN_RECORD_MS = 300;
 
 const MIME_CANDIDATES = [
@@ -19,13 +20,18 @@ const els = {
   btnTalk: document.getElementById("btn-talk"),
   btnStop: document.getElementById("btn-stop"),
   btnNewChat: document.getElementById("btn-new-chat"),
+  btnChats: document.getElementById("btn-chats"),
+  btnCloseSidebar: document.getElementById("btn-close-sidebar"),
+  convSidebar: document.getElementById("conv-sidebar"),
+  convOverlay: document.getElementById("conv-overlay"),
+  convList: document.getElementById("conv-list"),
   autoContinue: document.getElementById("auto-continue"),
+  muteOutput: document.getElementById("mute-output"),
   statusBanner: document.getElementById("status-banner"),
   statusText: document.getElementById("status-text"),
   timer: document.getElementById("timer"),
   pulseRing: document.getElementById("pulse-ring"),
   error: document.getElementById("error"),
-  hint: document.getElementById("hint"),
 };
 
 let mediaRecorder = null;
@@ -48,6 +54,163 @@ let audioProcessor = null;
 let pcmChunks = [];
 let micAcquireFailed = false;
 let thinkingEl = null;
+let cachedConversations = [];
+let playbackChain = Promise.resolve();
+let activeTurnId = null;
+let activeTurnAbort = null;
+let ttsAudio = null;
+let ttsPlayedAny = false;
+
+const SILENT_WAV =
+  "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==";
+
+function useSharedTtsAudio() {
+  return platform.isIOS || /Android/i.test(navigator.userAgent);
+}
+
+function getTtsAudioElement() {
+  if (!ttsAudio) {
+    ttsAudio = new Audio();
+    ttsAudio.setAttribute("playsinline", "");
+    ttsAudio.preload = "auto";
+  }
+  return ttsAudio;
+}
+
+function unlockTtsAudio() {
+  if (!useSharedTtsAudio()) return;
+  const audio = getTtsAudioElement();
+  audio.volume = 1;
+  audio.src = SILENT_WAV;
+  audio.play().catch(() => {});
+}
+
+function playUrlOnElement(audio, url) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
+    const cleanup = () => {
+      audio.onended = null;
+      audio.onerror = null;
+      audio.oncanplaythrough = null;
+    };
+    const start = () => {
+      audio.onended = () => {
+        ttsPlayedAny = true;
+        cleanup();
+        finish(resolve);
+      };
+      audio.onerror = () => {
+        cleanup();
+        finish(reject, new Error("playback failed"));
+      };
+      audio.play().catch((err) => {
+        cleanup();
+        finish(reject, err);
+      });
+    };
+    cleanup();
+    audio.pause();
+    audio.src = url;
+    audio.load();
+    if (audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+      start();
+    } else {
+      audio.oncanplaythrough = () => start();
+    }
+  });
+}
+
+function formatConversationDate(iso) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
+
+function openConversationSidebar() {
+  els.convSidebar.classList.remove("hidden");
+  els.convOverlay.classList.remove("hidden");
+  loadConversationList().catch(() => showError("Could not load conversations."));
+}
+
+function closeConversationSidebar() {
+  els.convSidebar.classList.add("hidden");
+  els.convOverlay.classList.add("hidden");
+}
+
+function renderConversationList(conversations) {
+  const currentId = getConversationId();
+  if (!conversations.length) {
+    els.convList.innerHTML = '<li class="conv-empty">No conversations yet</li>';
+    return;
+  }
+  els.convList.innerHTML = conversations
+    .map(
+      (conv) => `
+      <li>
+        <button type="button" class="conv-item ${conv.id === currentId ? "active" : ""}" data-id="${conv.id}">
+          <div class="conv-item-title">${escapeHtml(conv.title || "New conversation")}</div>
+          <div class="conv-item-date">${escapeHtml(formatConversationDate(conv.updated_at))}</div>
+        </button>
+      </li>`
+    )
+    .join("");
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+async function loadConversationList() {
+  const res = await fetch("/api/voice/conversations");
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
+  cachedConversations = data.conversations || [];
+  renderConversationList(cachedConversations);
+}
+
+function renderConversationMessages(messages) {
+  for (const child of [...els.thread.children]) {
+    if (child.id !== "thread-empty") child.remove();
+  }
+  thinkingEl = null;
+  if (!messages?.length) {
+    els.threadEmpty.classList.remove("hidden");
+    return;
+  }
+  for (const msg of messages) {
+    const role = msg.role === "user" ? "user" : "assistant";
+    if (msg.content) appendMessage(msg.content, role);
+  }
+}
+
+async function loadConversation(conversationId) {
+  const res = await fetch(`/api/voice/conversations/${conversationId}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
+  setConversationId(data.id);
+  renderConversationMessages(data.messages || []);
+  closeConversationSidebar();
+  renderConversationList(cachedConversations);
+  showError("");
+  setUiPhase("idle");
+}
 
 function classifyPlatform() {
   const ua = navigator.userAgent;
@@ -101,37 +264,26 @@ function setAutoContinue(enabled) {
   localStorage.setItem(AUTO_CONTINUE_KEY, enabled ? "1" : "0");
 }
 
+function setMuted(enabled) {
+  localStorage.setItem(MUTE_KEY, enabled ? "1" : "0");
+}
+
+function getMuted() {
+  return localStorage.getItem(MUTE_KEY) === "1";
+}
+
+function shouldPlayAudio() {
+  return !getMuted();
+}
+
 function setUiPhase(phase) {
   document.body.dataset.phase = phase;
   els.pulseRing.classList.toggle("hidden", phase !== "recording");
   els.btnTalk.disabled = phase === "processing" || phase === "playing";
   els.timer.classList.toggle("hidden", phase !== "recording");
-  els.statusBanner.classList.toggle("hidden", phase !== "recording" && phase !== "processing");
-  els.btnStop.classList.toggle("hidden", phase !== "playing");
-  updateTalkHint();
-}
-
-function updateTalkHint() {
-  const phase = document.body.dataset.phase;
-  if (phase === "recording") {
-    els.hint.textContent = "Tap when you're done speaking";
-    return;
-  }
-  if (phase === "processing") {
-    els.hint.textContent = "Waiting for LifeOS…";
-    return;
-  }
-  if (phase === "playing") {
-    els.hint.textContent = getAutoContinue()
-      ? "Playing reply — will listen again when done"
-      : "Playing reply — tap to talk when done";
-    return;
-  }
-  if (captureMode === "speech") {
-    els.hint.textContent = "Tap to talk · speech recognition";
-    return;
-  }
-  els.hint.textContent = "Tap to talk";
+  els.statusBanner.classList.toggle("hidden", phase === "idle");
+  const showStop = phase === "processing" || phase === "playing";
+  els.btnStop.classList.toggle("hidden", !showStop);
 }
 
 function showError(msg) {
@@ -144,7 +296,6 @@ function showBlockedNotice() {
   if (platform.isIOS) msg += " Try Safari on iPhone.";
   showError(msg);
   els.btnTalk.disabled = true;
-  els.hint.textContent = "";
 }
 
 function formatMicError(err) {
@@ -180,20 +331,43 @@ function clearConversation() {
   stopAllAudio();
   showError("");
   setUiPhase("idle");
+  renderConversationList(cachedConversations);
 }
 
 function hideThreadEmpty() {
   if (els.threadEmpty) els.threadEmpty.classList.add("hidden");
 }
 
-function appendMessage(text, role) {
+function appendMessage(text, role, audioUrls = null) {
   hideThreadEmpty();
   const el = document.createElement("div");
   el.className = `msg msg-${role}`;
   el.textContent = text;
+  if (role === "assistant" && audioUrls?.length) {
+    el.classList.add("msg-replayable");
+    el.dataset.audioUrls = JSON.stringify(audioUrls);
+    el.setAttribute("role", "button");
+    el.setAttribute("tabindex", "0");
+    el.setAttribute("aria-label", "Tap to replay response");
+  }
   els.thread.appendChild(el);
   els.thread.scrollTop = els.thread.scrollHeight;
   return el;
+}
+
+function parseAudioUrls(el) {
+  try {
+    return JSON.parse(el.dataset.audioUrls || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function setReplayingMessage(el) {
+  for (const node of els.thread.querySelectorAll(".msg-replaying")) {
+    node.classList.remove("msg-replaying");
+  }
+  if (el) el.classList.add("msg-replaying");
 }
 
 function showThinking() {
@@ -215,30 +389,82 @@ function clearThinking() {
 
 function stopAllAudio() {
   for (const a of activeAudios) {
+    a.onended = null;
+    a.onerror = null;
     a.pause();
     a.currentTime = 0;
   }
   activeAudios = [];
+  if (ttsAudio) {
+    ttsAudio.onended = null;
+    ttsAudio.onerror = null;
+    ttsAudio.oncanplaythrough = null;
+    ttsAudio.pause();
+    ttsAudio.currentTime = 0;
+  }
   isPlaying = false;
 }
 
-async function playUrls(urls) {
+function isBenignPlaybackError(err) {
+  const name = err?.name || "";
+  const msg = (err?.message || "").toLowerCase();
+  return (
+    name === "NotAllowedError" ||
+    name === "AbortError" ||
+    msg.includes("not allowed by the user agent") ||
+    msg.includes("aborted")
+  );
+}
+
+async function playUrls(urls, { autoContinueAfter = false, replayEl = null } = {}) {
+  if (!shouldPlayAudio()) {
+    if (autoContinueAfter) await maybeAutoContinue();
+    else setUiPhase("idle");
+    return;
+  }
   stopAllAudio();
   if (!urls.length) return;
   isPlaying = true;
   setUiPhase("playing");
+  setReplayingMessage(replayEl);
   try {
     for (const url of urls) {
-      await new Promise((resolve, reject) => {
-        const audio = new Audio(url);
-        activeAudios.push(audio);
-        audio.onended = () => resolve();
-        audio.onerror = () => reject(new Error("playback failed"));
-        audio.play().catch(reject);
-      });
+      if (useSharedTtsAudio()) {
+        const audio = getTtsAudioElement();
+        if (!activeAudios.includes(audio)) activeAudios.push(audio);
+        await playUrlOnElement(audio, url);
+      } else {
+        await new Promise((resolve, reject) => {
+          const audio = new Audio(url);
+          activeAudios.push(audio);
+          audio.onended = () => resolve();
+          audio.onerror = () => reject(new Error("playback failed"));
+          audio.play().catch(reject);
+        });
+      }
     }
   } finally {
     isPlaying = false;
+    setReplayingMessage(null);
+  }
+  if (autoContinueAfter) {
+    await maybeAutoContinue();
+  } else {
+    setUiPhase("idle");
+  }
+}
+
+async function replayMessage(el) {
+  if (document.body.dataset.phase === "processing") return;
+  if (!shouldPlayAudio()) return;
+  const urls = parseAudioUrls(el);
+  if (!urls.length) return;
+  showError("");
+  try {
+    await playUrls(urls, { autoContinueAfter: false, replayEl: el });
+  } catch (err) {
+    showError(err.message || String(err));
+    setUiPhase("idle");
   }
 }
 
@@ -263,7 +489,7 @@ async function maybeAutoContinue() {
     return;
   }
 
-  els.hint.textContent = "Starting next turn…";
+  els.statusText.textContent = "Listening…";
   try {
     await beginRecordingFromAuto();
   } catch (err) {
@@ -276,10 +502,106 @@ async function maybeAutoContinue() {
   }
 }
 
+async function playSingleUrl(url) {
+  if (useSharedTtsAudio()) {
+    const audio = getTtsAudioElement();
+    if (!activeAudios.includes(audio)) activeAudios.push(audio);
+    return playUrlOnElement(audio, url);
+  }
+  return new Promise((resolve, reject) => {
+    const audio = new Audio(url);
+    activeAudios.push(audio);
+    audio.onended = () => resolve();
+    audio.onerror = () => reject(new Error("playback failed"));
+    audio.play().catch(reject);
+  });
+}
+
+function enqueueClip(url) {
+  if (!shouldPlayAudio()) return playbackChain;
+  playbackChain = playbackChain
+    .then(() => playSingleUrl(url))
+    .catch((err) => {
+      if (!isBenignPlaybackError(err)) {
+        showError(err.message || String(err));
+      }
+    });
+  return playbackChain;
+}
+
+function parseSseChunk(buffer, onEvent) {
+  const lines = buffer.split("\n");
+  const remainder = lines.pop() || "";
+  for (const line of lines) {
+    if (!line.startsWith("data: ")) continue;
+    try {
+      onEvent(JSON.parse(line.slice(6)));
+    } catch {
+      /* ignore malformed chunks */
+    }
+  }
+  return remainder;
+}
+
+async function consumeTurnStream(response) {
+  playbackChain = Promise.resolve();
+  ttsPlayedAny = false;
+  let doneData = null;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const handleEvent = (event) => {
+    if (event.type === "started") {
+      activeTurnId = event.turn_id;
+    }
+    if (event.type === "cancelled") {
+      throw new DOMException("Turn cancelled", "AbortError");
+    }
+    if (event.type === "error") {
+      throw new Error(event.message || "Turn failed");
+    }
+    if (event.type === "status_audio") {
+      if (event.message) els.statusText.textContent = event.message;
+      if (shouldPlayAudio()) {
+        if (!isPlaying) {
+          isPlaying = true;
+          setUiPhase("playing");
+        }
+        enqueueClip(event.url);
+      }
+    }
+    if (event.type === "main_audio") {
+      if (shouldPlayAudio()) {
+        if (!isPlaying) {
+          isPlaying = true;
+          setUiPhase("playing");
+        }
+        enqueueClip(event.url);
+      }
+    }
+    if (event.type === "done") {
+      doneData = event.data;
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    buffer = parseSseChunk(buffer, handleEvent);
+  }
+  buffer += decoder.decode();
+  parseSseChunk(`${buffer}\n`, handleEvent);
+  return doneData;
+}
+
 async function submitTurn({ blob, mime, transcript }) {
   setUiPhase("processing");
   els.statusText.textContent = "Thinking…";
   showThinking();
+  activeTurnId = null;
+  activeTurnAbort = new AbortController();
 
   const form = new FormData();
   if (blob) form.append("audio", blob, blobFilename(mime));
@@ -287,29 +609,63 @@ async function submitTurn({ blob, mime, transcript }) {
   const convId = getConversationId();
   if (convId) form.append("conversation_id", convId);
 
-  const res = await fetch("/api/voice/turn", { method: "POST", body: form });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
+  try {
+    const res = await fetch("/api/voice/turn/stream", {
+      method: "POST",
+      body: form,
+      signal: activeTurnAbort.signal,
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      clearThinking();
+      throw new Error(data.detail || `Request failed (${res.status})`);
+    }
+
+    const data = await consumeTurnStream(res);
+    if (!data) {
+      clearThinking();
+      throw new Error("Turn ended without a response");
+    }
+
+    if (data.conversation_id) setConversationId(data.conversation_id);
+
     clearThinking();
-    throw new Error(data.detail || `Request failed (${res.status})`);
+    if (data.transcript) appendMessage(data.transcript, "user");
+    const playbackUrls = [...(data.status_audio_urls || []), data.audio_url].filter(Boolean);
+    lastPlayback = { urls: playbackUrls, texts: data };
+    if (data.response_text) appendMessage(data.response_text, "assistant", playbackUrls);
+
+    await playbackChain;
+    if (useSharedTtsAudio() && shouldPlayAudio() && playbackUrls.length && !ttsPlayedAny) {
+      await playUrls(playbackUrls, { autoContinueAfter: true });
+    } else {
+      isPlaying = false;
+      await maybeAutoContinue();
+    }
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      return;
+    }
+    clearThinking();
+    throw err;
+  } finally {
+    activeTurnId = null;
+    activeTurnAbort = null;
   }
+}
 
-  if (data.conversation_id) setConversationId(data.conversation_id);
-
+function cancelActiveTurn() {
+  activeTurnAbort?.abort();
+  if (activeTurnId) {
+    fetch(`/api/voice/turn/${activeTurnId}/cancel`, { method: "POST" }).catch(() => {});
+  }
+  playbackChain = Promise.resolve();
+  stopAllAudio();
   clearThinking();
-  if (data.transcript) appendMessage(data.transcript, "user");
-  if (data.response_text) appendMessage(data.response_text, "assistant");
-
-  lastPlayback = { urls: [...(data.status_audio_urls || []), data.audio_url].filter(Boolean), texts: data };
-
-  const urls = lastPlayback.urls;
-  if (urls.length) {
-    await playUrls(urls);
-  } else {
-    setUiPhase("idle");
-  }
-
-  await maybeAutoContinue();
+  isPlaying = false;
+  activeTurnId = null;
+  activeTurnAbort = null;
+  setUiPhase("idle");
 }
 
 function formatSpeechError(event) {
@@ -661,6 +1017,7 @@ async function beginRecordingFromTap() {
 
 function onTalkClick(event) {
   event.preventDefault();
+  unlockTtsAudio();
   if (captureMode === "blocked") return;
   if (document.body.dataset.phase === "processing") return;
   if (isStarting) return;
@@ -689,20 +1046,59 @@ els.btnTalk.addEventListener("click", onTalkClick, false);
 els.btnTalk.addEventListener("contextmenu", (e) => e.preventDefault());
 
 els.btnStop.addEventListener("click", () => {
+  if (document.body.dataset.phase === "processing" || document.body.dataset.phase === "playing") {
+    cancelActiveTurn();
+    return;
+  }
   stopAllAudio();
   setUiPhase("idle");
-  maybeAutoContinue();
+});
+
+els.thread.addEventListener("click", (event) => {
+  const msg = event.target.closest(".msg-assistant.msg-replayable");
+  if (!msg) return;
+  unlockTtsAudio();
+  replayMessage(msg);
+});
+
+els.thread.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const msg = event.target.closest(".msg-assistant.msg-replayable");
+  if (!msg) return;
+  event.preventDefault();
+  replayMessage(msg);
 });
 
 els.btnNewChat.addEventListener("click", () => {
   if (document.body.dataset.phase === "processing") return;
   clearConversation();
+  closeConversationSidebar();
+});
+
+els.btnChats.addEventListener("click", () => openConversationSidebar());
+els.btnCloseSidebar.addEventListener("click", () => closeConversationSidebar());
+els.convOverlay.addEventListener("click", () => closeConversationSidebar());
+
+els.convList.addEventListener("click", (event) => {
+  const btn = event.target.closest(".conv-item");
+  if (!btn) return;
+  const id = btn.dataset.id;
+  if (!id) return;
+  loadConversation(id).catch((err) => showError(err.message || String(err)));
 });
 
 els.autoContinue.checked = getAutoContinue();
 els.autoContinue.addEventListener("change", () => {
   setAutoContinue(els.autoContinue.checked);
-  updateTalkHint();
+});
+
+els.muteOutput.checked = getMuted();
+els.muteOutput.addEventListener("change", () => {
+  setMuted(els.muteOutput.checked);
+  if (getMuted()) {
+    stopAllAudio();
+    if (document.body.dataset.phase === "playing") setUiPhase("idle");
+  }
 });
 
 window.addEventListener("pagehide", () => {

@@ -13,8 +13,8 @@
   --assistant-bubble: #1a2332;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --dock-footer-height: 2.35rem;
-  --shutter-lift: 4.75rem;
-  --dock-height: calc(var(--shutter-lift) + var(--shutter-size) + var(--dock-footer-height) + 1.5rem);
+  --shutter-lift: 3.35rem;
+  --dock-height: calc(var(--shutter-lift) + var(--shutter-size) + var(--dock-footer-height) + 0.75rem);
   --shutter-size: 4.5rem;
 }
 
@@ -46,12 +46,16 @@ body {
 }
 
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  gap: 0.75rem;
   padding: 0.85rem 1rem 0.5rem;
   flex-shrink: 0;
+}
+
+.topbar-title {
+  text-align: center;
 }
 
 .topbar-title h1 {
@@ -79,6 +83,85 @@ body {
 }
 
 .btn-ghost:active { background: var(--surface); }
+
+.conv-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.conv-sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 21;
+  width: min(18rem, 86vw);
+  background: var(--surface);
+  border-right: 1px solid var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.conv-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.85rem 0.85rem 0.5rem;
+  border-bottom: 1px solid var(--surface-2);
+}
+
+.conv-sidebar-header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.conv-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.35rem 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.conv-item {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 0.7rem 0.85rem;
+  cursor: pointer;
+}
+
+.conv-item:active,
+.conv-item.active {
+  background: var(--surface-2);
+}
+
+.conv-item-title {
+  font-size: 0.9rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conv-item-date {
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.conv-empty {
+  padding: 1rem 0.85rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
 
 .thread {
   flex: 1;
@@ -142,7 +225,7 @@ body {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(var(--dock-height) + var(--safe-bottom) - 0.25rem);
+  bottom: calc(var(--shutter-lift) + var(--shutter-size) + var(--safe-bottom) + 0.45rem);
   z-index: 9;
   display: flex;
   align-items: center;
@@ -192,7 +275,13 @@ body {
   justify-content: center;
 }
 
-.toggle-auto {
+.dock-toggles {
+  display: flex;
+  align-items: center;
+  gap: 1.35rem;
+}
+
+.toggle-switch {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -207,7 +296,7 @@ body {
   right: 0;
 }
 
-.toggle-auto input {
+.toggle-switch input {
   position: absolute;
   opacity: 0;
   width: 0;
@@ -236,11 +325,11 @@ body {
   transition: transform 0.15s ease;
 }
 
-.toggle-auto input:checked + .toggle-track {
+.toggle-switch input:checked + .toggle-track {
   background: var(--accent);
 }
 
-.toggle-auto input:checked + .toggle-track::after {
+.toggle-switch input:checked + .toggle-track::after {
   transform: translateX(1.05rem);
 }
 
@@ -313,23 +402,11 @@ body[data-phase="playing"] .shutter {
   animation: pulse-ring 1.4s ease-out infinite;
 }
 
-.hint {
-  position: absolute;
-  left: 1rem;
-  right: 1rem;
-  bottom: calc(var(--shutter-lift) + var(--shutter-size) + var(--safe-bottom) + 0.35rem);
-  margin: 0;
-  min-height: 1.2rem;
-  text-align: center;
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
 .error {
   position: fixed;
   left: 1rem;
   right: 1rem;
-  bottom: calc(var(--dock-height) + var(--safe-bottom) + 2.5rem);
+  bottom: calc(var(--shutter-lift) + var(--shutter-size) + var(--safe-bottom) + 2.85rem);
   z-index: 11;
   margin: 0 auto;
   max-width: 688px;
@@ -345,11 +422,10 @@ body[data-phase="playing"] .shutter {
 @media (min-width: 768px) {
   :root {
     --shutter-size: 5.75rem;
-    --shutter-lift: 5.25rem;
+    --shutter-lift: 3.75rem;
   }
 
   .topbar-title h1 { font-size: 1.35rem; }
-  .hint { font-size: 0.95rem; }
 }
 
 @keyframes pulse-ring {
