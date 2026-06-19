@@ -230,11 +230,14 @@ async def test_voice_turn_stream_agent_backend(tmp_path):
     )
     app = create_app(settings, pipeline=pipeline)
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as http, http.stream(
-        "POST",
-        "/api/voice/turn/stream",
-        data={"backend": "agent", "transcript": "remind me to call mom"},
-    ) as resp:
+    async with (
+        AsyncClient(transport=transport, base_url="http://test") as http,
+        http.stream(
+            "POST",
+            "/api/voice/turn/stream",
+            data={"backend": "agent", "transcript": "remind me to call mom"},
+        ) as resp,
+    ):
         assert resp.status_code == 200
         events = []
         async for line in resp.aiter_lines():
