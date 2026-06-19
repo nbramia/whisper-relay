@@ -54,6 +54,7 @@ let pcmChunks = [];
 let micAcquireFailed = false;
 let thinkingEl = null;
 let cachedConversations = [];
+let playbackChain = Promise.resolve();
 
 function formatConversationDate(iso) {
   if (!iso) return "";
@@ -412,6 +413,81 @@ async function maybeAutoContinue() {
   }
 }
 
+async function playSingleUrl(url) {
+  return new Promise((resolve, reject) => {
+    const audio = new Audio(url);
+    activeAudios.push(audio);
+    audio.onended = () => resolve();
+    audio.onerror = () => reject(new Error("playback failed"));
+    audio.play().catch(reject);
+  });
+}
+
+function enqueueClip(url) {
+  playbackChain = playbackChain
+    .then(() => playSingleUrl(url))
+    .catch((err) => {
+      showError(err.message || String(err));
+    });
+  return playbackChain;
+}
+
+function parseSseChunk(buffer, onEvent) {
+  const lines = buffer.split("\n");
+  const remainder = lines.pop() || "";
+  for (const line of lines) {
+    if (!line.startsWith("data: ")) continue;
+    try {
+      onEvent(JSON.parse(line.slice(6)));
+    } catch {
+      /* ignore malformed chunks */
+    }
+  }
+  return remainder;
+}
+
+async function consumeTurnStream(response) {
+  playbackChain = Promise.resolve();
+  let doneData = null;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const handleEvent = (event) => {
+    if (event.type === "error") {
+      throw new Error(event.message || "Turn failed");
+    }
+    if (event.type === "status_audio") {
+      if (event.message) els.statusText.textContent = event.message;
+      if (!isPlaying) {
+        isPlaying = true;
+        setUiPhase("playing");
+      }
+      enqueueClip(event.url);
+    }
+    if (event.type === "main_audio") {
+      if (!isPlaying) {
+        isPlaying = true;
+        setUiPhase("playing");
+      }
+      enqueueClip(event.url);
+    }
+    if (event.type === "done") {
+      doneData = event.data;
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    buffer = parseSseChunk(buffer, handleEvent);
+  }
+  buffer += decoder.decode();
+  parseSseChunk(`${buffer}\n`, handleEvent);
+  return doneData;
+}
+
 async function submitTurn({ blob, mime, transcript }) {
   setUiPhase("processing");
   els.statusText.textContent = "Thinking…";
@@ -423,11 +499,17 @@ async function submitTurn({ blob, mime, transcript }) {
   const convId = getConversationId();
   if (convId) form.append("conversation_id", convId);
 
-  const res = await fetch("/api/voice/turn", { method: "POST", body: form });
-  const data = await res.json().catch(() => ({}));
+  const res = await fetch("/api/voice/turn/stream", { method: "POST", body: form });
   if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
     clearThinking();
     throw new Error(data.detail || `Request failed (${res.status})`);
+  }
+
+  const data = await consumeTurnStream(res);
+  if (!data) {
+    clearThinking();
+    throw new Error("Turn ended without a response");
   }
 
   if (data.conversation_id) setConversationId(data.conversation_id);
@@ -438,12 +520,9 @@ async function submitTurn({ blob, mime, transcript }) {
   lastPlayback = { urls: playbackUrls, texts: data };
   if (data.response_text) appendMessage(data.response_text, "assistant", playbackUrls);
 
-  if (playbackUrls.length) {
-    await playUrls(playbackUrls, { autoContinueAfter: true });
-  } else {
-    setUiPhase("idle");
-    await maybeAutoContinue();
-  }
+  await playbackChain;
+  isPlaying = false;
+  await maybeAutoContinue();
 }
 
 function formatSpeechError(event) {
