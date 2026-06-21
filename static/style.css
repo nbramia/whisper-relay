@@ -84,37 +84,43 @@ body {
   color: #fff;
 }
 
-.persona-row {
+.persona-bar {
   display: flex;
-  gap: 0.4rem;
-  padding: 0 1rem 0.35rem;
-  overflow-x: auto;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0 1rem 0.45rem;
   flex-shrink: 0;
-  scrollbar-width: none;
 }
 
-.persona-row::-webkit-scrollbar {
-  display: none;
-}
-
-.persona-option {
-  border: 1px solid var(--surface-2);
-  background: var(--surface);
-  color: var(--muted);
-  font: inherit;
+.persona-label {
   font-size: 0.78rem;
   font-weight: 600;
-  padding: 0.3rem 0.75rem;
-  border-radius: 999px;
-  cursor: pointer;
-  white-space: nowrap;
+  color: var(--muted);
   flex-shrink: 0;
 }
 
-.persona-option.active {
-  background: var(--surface-2);
+.persona-select {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--surface-2);
+  background: var(--surface);
   color: var(--text);
-  border-color: var(--accent);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.45rem 2rem 0.45rem 0.75rem;
+  border-radius: 0.65rem;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%238b9bb4' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+}
+
+.persona-select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .backend-subtitle {

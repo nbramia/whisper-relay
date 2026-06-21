@@ -45,7 +45,8 @@ const els = {
   convSidebar: document.getElementById("conv-sidebar"),
   convOverlay: document.getElementById("conv-overlay"),
   convList: document.getElementById("conv-list"),
-  personaRow: document.getElementById("persona-row"),
+  personaBar: document.getElementById("persona-bar"),
+  personaSelect: document.getElementById("persona-select"),
   backendSubtitle: document.getElementById("backend-subtitle"),
   backendOptions: document.querySelectorAll("[data-backend]"),
   autoContinue: document.getElementById("auto-continue"),
@@ -566,8 +567,8 @@ function updateBackendUi() {
   for (const btn of els.backendOptions) {
     btn.classList.toggle("active", btn.dataset.backend === mode);
   }
-  if (els.personaRow) {
-    els.personaRow.classList.toggle("hidden", mode !== "lifeos");
+  if (els.personaBar) {
+    els.personaBar.classList.toggle("hidden", mode !== "lifeos" || cachedPersonas.length <= 1);
   }
   if (els.backendSubtitle) {
     if (mode === "agent") {
@@ -592,18 +593,21 @@ function updateBackendUi() {
 }
 
 function renderPersonaOptions() {
-  if (!els.personaRow || getBackendMode() !== "lifeos") return;
+  if (!els.personaSelect || getBackendMode() !== "lifeos") return;
   const activeId = getLifeosPersona();
   if (!cachedPersonas.length) {
-    els.personaRow.innerHTML = "";
+    els.personaSelect.innerHTML = "";
     return;
   }
-  els.personaRow.innerHTML = cachedPersonas
+  els.personaSelect.innerHTML = cachedPersonas
     .map(
       (persona) =>
-        `<button type="button" class="persona-option ${persona.id === activeId ? "active" : ""}" data-persona="${persona.id}">${escapeHtml(persona.label || persona.id)}</button>`
+        `<option value="${escapeHtml(persona.id)}"${persona.id === activeId ? " selected" : ""}>${escapeHtml(persona.label || persona.id)}</option>`
     )
     .join("");
+  if (els.personaBar) {
+    els.personaBar.classList.toggle("hidden", cachedPersonas.length <= 1);
+  }
 }
 
 async function loadPersonas() {
@@ -1480,16 +1484,19 @@ for (const btn of els.backendOptions) {
     setBackendMode(next);
     clearConversation();
     closeConversationSidebar();
+    if (next === "lifeos") loadPersonas().catch(() => {});
   });
 }
 
-if (els.personaRow) {
-  els.personaRow.addEventListener("click", (event) => {
-    const btn = event.target.closest("[data-persona]");
-    if (!btn || getBackendMode() !== "lifeos") return;
-    const next = btn.dataset.persona;
+if (els.personaSelect) {
+  els.personaSelect.addEventListener("change", () => {
+    if (getBackendMode() !== "lifeos") return;
+    const next = els.personaSelect.value;
     if (!next || next === getLifeosPersona()) return;
-    if (document.body.dataset.phase === "processing") return;
+    if (document.body.dataset.phase === "processing") {
+      els.personaSelect.value = getLifeosPersona();
+      return;
+    }
     setLifeosPersona(next);
     clearConversation();
     closeConversationSidebar();
