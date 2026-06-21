@@ -150,6 +150,38 @@ async def test_conversations_proxy_persona_filter(client, pipeline):
 
 
 @pytest.mark.asyncio
+async def test_turn_includes_persona_id(client, pipeline):
+    lifeos = pipeline._text_backend.lifeos
+    resp = await client.post(
+        "/api/voice/turn",
+        data={"transcript": "hello", "backend": "lifeos", "persona_id": "fitness"},
+    )
+    assert resp.status_code == 200
+    assert lifeos.last_persona_id == "fitness"
+    assert lifeos.last_parse_handoff is False
+
+
+@pytest.mark.asyncio
+async def test_turn_stream_handoff_for_doctor_persona(client, pipeline):
+    lifeos = pipeline._text_backend.lifeos
+
+    async def mock_ask(*args, **kwargs):
+        lifeos.last_persona_id = kwargs.get("persona_id")
+        lifeos.last_parse_handoff = kwargs.get("parse_handoff")
+        return LifeOSResult(answer="ok", conversation_id="conv-1")
+
+    lifeos.ask = mock_ask  # type: ignore[method-assign]
+
+    resp = await client.post(
+        "/api/voice/turn/stream",
+        data={"transcript": "hello", "backend": "lifeos", "persona_id": "doctor"},
+    )
+    assert resp.status_code == 200
+    assert lifeos.last_persona_id == "doctor"
+    assert lifeos.last_parse_handoff is True
+
+
+@pytest.mark.asyncio
 async def test_turn_stream_includes_persona_id(client, pipeline):
     lifeos = pipeline._text_backend.lifeos
     resp = await client.post(

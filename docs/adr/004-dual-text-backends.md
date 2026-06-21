@@ -21,8 +21,9 @@ voice-adapter exposes a LifeOS-compatible SSE subset (`POST /api/ask/stream`) an
 
 Both backends implement the same client protocol surface:
 
-- `ask(question, *, conversation_id, turn_id, on_status, cancel) -> LifeOSResult`
-- `list_conversations()` / `get_conversation(id)` for the Chats sidebar
+- `ask(question, *, conversation_id, turn_id, on_status, cancel, persona_id?, parse_handoff?) -> LifeOSResult`
+- `list_conversations(*, persona_id?)` / `get_conversation(id)` for the Chats sidebar
+- LifeOS only: `list_personas()` for persona discovery
 
 Implementation:
 

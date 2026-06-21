@@ -55,6 +55,7 @@ class StubLifeOSClient:
             "personas": [
                 {"id": "primary", "label": "LifeOS", "capabilities": ["handoff", "agent"]},
                 {"id": "fitness", "label": "Fitness", "capabilities": []},
+                {"id": "doctor", "label": "Doctor", "capabilities": ["handoff"]},
             ]
         }
 
@@ -120,7 +121,8 @@ def app(tmp_settings: Settings, pipeline: TurnPipeline):
 
 
 @pytest.fixture
-async def client(app):
+async def client(app, pipeline):
+    app.state.lifeos_personas = await pipeline._text_backend.lifeos.list_personas()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac

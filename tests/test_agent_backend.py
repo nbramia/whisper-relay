@@ -204,6 +204,32 @@ async def test_turn_routes_agent_backend(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_agent_turn_ignores_persona_id(tmp_path):
+    settings = Settings(data_dir=tmp_path, tts_backend="null")
+    storage = TurnStorage(settings.turns_dir)
+    agent = AgentStubClient()
+    pipeline = TurnPipeline(
+        settings,
+        storage,
+        StubSTTAdapter("hello"),
+        TextBackendRouter(StubLifeOSClient(), agent),
+        NullTTSAdapter(),
+    )
+    app = create_app(settings, pipeline=pipeline)
+    normalized = NormalizedAudio(pcm_bytes=b"\x00\x00" * 100, duration_s=0.1)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("voice_gateway.turns.normalize_audio", return_value=normalized):
+            resp = await client.post(
+                "/api/voice/turn",
+                data={"backend": "agent", "transcript": "hello", "persona_id": "fitness"},
+            )
+    assert resp.status_code == 200
+    assert agent.last_question == "hello"
+
+
+@pytest.mark.asyncio
 async def test_conversations_proxy_agent_backend(client):
     agent = AgentStubClient()
     app = client._transport.app
@@ -288,7 +314,17 @@ async def test_agent_backend_unconfigured_returns_503(tmp_path):
 
 
 class SlowAgentStub:
-    async def ask(self, question, *, conversation_id, turn_id, on_status=None, cancel=None):
+    async def ask(
+        self,
+        question,
+        *,
+        conversation_id,
+        turn_id,
+        on_status=None,
+        cancel=None,
+        persona_id=None,
+        parse_handoff=True,
+    ):
         if on_status:
             await on_status("Working…")
         for _ in range(200):
@@ -297,7 +333,10 @@ class SlowAgentStub:
             await asyncio.sleep(0.01)
         return LifeOSResult(answer="done", conversation_id=conversation_id or "agent-1")
 
-    async def list_conversations(self):
+    async def list_personas(self):
+        raise LifeOSError("agent backend has no LifeOS personas")
+
+    async def list_conversations(self, *, persona_id=None):
         return {"conversations": []}
 
     async def get_conversation(self, conversation_id: str):
@@ -322,6 +361,7 @@ async def test_cancel_agent_turn_during_stream(tmp_settings, tmp_path):
 
     with patch("voice_gateway.turns.normalize_audio", return_value=normalized):
         events = []
+        turn_id = None
         async for event in pipeline.run_turn_stream(
             b"x",
             content_type="audio/webm",
@@ -332,7 +372,9 @@ async def test_cancel_agent_turn_during_stream(tmp_settings, tmp_path):
         ):
             events.append(event)
             if event["type"] == "started":
-                registry.cancel(event["turn_id"])
+                turn_id = event["turn_id"]
+            if event["type"] == "status_audio" and turn_id:
+                registry.cancel(turn_id)
             if event["type"] in {"cancelled", "done", "error"}:
                 break
 
