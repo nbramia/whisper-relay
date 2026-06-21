@@ -41,6 +41,8 @@ class HTTPAgentBackendClient:
         turn_id: str,
         on_status: StatusCallback | None = None,
         cancel: Any = None,
+        persona_id: str | None = None,
+        parse_handoff: bool = True,
     ) -> LifeOSResult:
         body: dict[str, Any] = {"question": question}
         if conversation_id:
@@ -74,7 +76,10 @@ class HTTPAgentBackendClient:
             statuses=state.statuses,
         )
 
-    async def list_conversations(self) -> dict[str, Any]:
+    async def list_personas(self) -> dict[str, Any]:
+        raise LifeOSError("agent backend has no LifeOS personas")
+
+    async def list_conversations(self, *, persona_id: str | None = None) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=30.0, headers=self._headers()) as client:
             resp = await client.get(f"{self._base_url}/api/conversations")
             if resp.status_code != 200:

@@ -7,7 +7,7 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>LifeOS · Whisper Relay</title>
-  <link rel="stylesheet" href="/style.css?v=2" />
+  <link rel="stylesheet" href="/style.css?v=3" />
 </head>
 <body data-phase="idle">
   <main class="app">
@@ -25,6 +25,9 @@
         New chat
       </button>
     </header>
+
+    <div id="persona-row" class="persona-row hidden" role="group" aria-label="LifeOS persona"></div>
+    <p id="backend-subtitle" class="backend-subtitle hidden"></p>
 
     <div id="conv-overlay" class="conv-overlay hidden" aria-hidden="true"></div>
     <aside id="conv-sidebar" class="conv-sidebar hidden" aria-label="Conversations">
@@ -76,6 +79,6 @@
 
     <p id="error" class="error hidden" role="alert"></p>
   </main>
-  <script src="/app.js?v=36"></script>
+  <script src="/app.js?v=37"></script>
 </body>
 </html>

@@ -1,7 +1,9 @@
 const BACKEND_MODE_KEY = "whisper_relay_backend_mode";
 const LEGACY_CONVERSATION_KEY = "whisper_relay_conversation_id";
+const LEGACY_LIFEOS_CONV_KEY = "whisper_relay_conversation_id_lifeos";
+const LIFEOS_PERSONA_KEY = "whisper_relay_lifeos_persona";
+const DEFAULT_LIFEOS_PERSONA = "primary";
 const CONV_ID_KEYS = {
-  lifeos: "whisper_relay_conversation_id_lifeos",
   agent: "whisper_relay_conversation_id_agent",
 };
 const AUTO_CONTINUE_KEY = "whisper_relay_auto_continue";
@@ -43,6 +45,7 @@ const els = {
   convSidebar: document.getElementById("conv-sidebar"),
   convOverlay: document.getElementById("conv-overlay"),
   convList: document.getElementById("conv-list"),
+  personaRow: document.getElementById("persona-row"),
   backendSubtitle: document.getElementById("backend-subtitle"),
   backendOptions: document.querySelectorAll("[data-backend]"),
   autoContinue: document.getElementById("auto-continue"),
@@ -76,6 +79,7 @@ let pcmChunks = [];
 let micAcquireFailed = false;
 let thinkingEl = null;
 let cachedConversations = [];
+let cachedPersonas = [];
 let playbackChain = Promise.resolve();
 let activeTurnId = null;
 let activeTurnAbort = null;
@@ -285,7 +289,11 @@ function escapeHtml(text) {
 
 async function loadConversationList() {
   const backend = getBackendMode();
-  const res = await fetch(`/api/voice/conversations?backend=${encodeURIComponent(backend)}`);
+  let url = `/api/voice/conversations?backend=${encodeURIComponent(backend)}`;
+  if (backend === "lifeos") {
+    url += `&persona_id=${encodeURIComponent(getLifeosPersona())}`;
+  }
+  const res = await fetch(url);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
   cachedConversations = data.conversations || [];
@@ -483,16 +491,54 @@ function formatMicError(err) {
   return err?.message || String(err);
 }
 
+function lifeosConvStorageKey(personaId = getLifeosPersona()) {
+  return `whisper_relay_conversation_id_lifeos_${personaId}`;
+}
+
 function migrateLegacyConversationId() {
   try {
     const legacy = sessionStorage.getItem(LEGACY_CONVERSATION_KEY);
-    if (legacy && !sessionStorage.getItem(CONV_ID_KEYS.lifeos)) {
-      sessionStorage.setItem(CONV_ID_KEYS.lifeos, legacy);
+    const legacyLifeos = sessionStorage.getItem(LEGACY_LIFEOS_CONV_KEY);
+    const primaryKey = lifeosConvStorageKey(DEFAULT_LIFEOS_PERSONA);
+    if (legacy && !sessionStorage.getItem(primaryKey)) {
+      sessionStorage.setItem(primaryKey, legacy);
       sessionStorage.removeItem(LEGACY_CONVERSATION_KEY);
+    }
+    if (legacyLifeos && !sessionStorage.getItem(primaryKey)) {
+      sessionStorage.setItem(primaryKey, legacyLifeos);
+      sessionStorage.removeItem(LEGACY_LIFEOS_CONV_KEY);
     }
   } catch {
     /* storage blocked */
   }
+}
+
+function getLifeosPersona() {
+  migrateLegacyConversationId();
+  try {
+    const stored = sessionStorage.getItem(LIFEOS_PERSONA_KEY);
+    if (stored && cachedPersonas.some((p) => p.id === stored)) return stored;
+    if (stored && !cachedPersonas.length) return stored;
+  } catch {
+    /* storage blocked */
+  }
+  return DEFAULT_LIFEOS_PERSONA;
+}
+
+function setLifeosPersona(personaId) {
+  const next = personaId || DEFAULT_LIFEOS_PERSONA;
+  try {
+    sessionStorage.setItem(LIFEOS_PERSONA_KEY, next);
+  } catch {
+    /* storage blocked */
+  }
+  updateBackendUi();
+}
+
+function getActivePersona() {
+  if (getBackendMode() !== "lifeos") return null;
+  const id = getLifeosPersona();
+  return cachedPersonas.find((p) => p.id === id) || { id, label: id };
 }
 
 function getBackendMode() {
@@ -520,18 +566,66 @@ function updateBackendUi() {
   for (const btn of els.backendOptions) {
     btn.classList.toggle("active", btn.dataset.backend === mode);
   }
+  if (els.personaRow) {
+    els.personaRow.classList.toggle("hidden", mode !== "lifeos");
+  }
   if (els.backendSubtitle) {
-    els.backendSubtitle.textContent = mode === "agent" ? "Agent mode" : "LifeOS mode";
+    if (mode === "agent") {
+      els.backendSubtitle.textContent = "Agent mode";
+      els.backendSubtitle.classList.remove("hidden");
+    } else {
+      const persona = getActivePersona();
+      els.backendSubtitle.textContent = persona?.label ? `LifeOS · ${persona.label}` : "LifeOS mode";
+      els.backendSubtitle.classList.toggle("hidden", !persona?.label);
+    }
   }
   const sidebarTitle = document.querySelector(".conv-sidebar-header h2");
   if (sidebarTitle) {
-    sidebarTitle.textContent = mode === "agent" ? "Agent threads" : "Conversations";
+    if (mode === "agent") {
+      sidebarTitle.textContent = "Agent threads";
+    } else {
+      const persona = getActivePersona();
+      sidebarTitle.textContent = persona?.label ? `${persona.label} chats` : "Conversations";
+    }
+  }
+  renderPersonaOptions();
+}
+
+function renderPersonaOptions() {
+  if (!els.personaRow || getBackendMode() !== "lifeos") return;
+  const activeId = getLifeosPersona();
+  if (!cachedPersonas.length) {
+    els.personaRow.innerHTML = "";
+    return;
+  }
+  els.personaRow.innerHTML = cachedPersonas
+    .map(
+      (persona) =>
+        `<button type="button" class="persona-option ${persona.id === activeId ? "active" : ""}" data-persona="${persona.id}">${escapeHtml(persona.label || persona.id)}</button>`
+    )
+    .join("");
+}
+
+async function loadPersonas() {
+  try {
+    const res = await fetch("/api/voice/personas");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
+    cachedPersonas = data.personas || [];
+    if (!cachedPersonas.some((p) => p.id === getLifeosPersona())) {
+      setLifeosPersona(DEFAULT_LIFEOS_PERSONA);
+    }
+    updateBackendUi();
+  } catch {
+    cachedPersonas = [{ id: DEFAULT_LIFEOS_PERSONA, label: "LifeOS", capabilities: ["handoff", "agent"] }];
+    updateBackendUi();
   }
 }
 
 function getConversationId() {
   migrateLegacyConversationId();
-  const key = CONV_ID_KEYS[getBackendMode()];
+  const mode = getBackendMode();
+  const key = mode === "agent" ? CONV_ID_KEYS.agent : lifeosConvStorageKey();
   try {
     return sessionStorage.getItem(key) || "";
   } catch {
@@ -541,7 +635,8 @@ function getConversationId() {
 
 function setConversationId(id) {
   if (!id) return;
-  const key = CONV_ID_KEYS[getBackendMode()];
+  const mode = getBackendMode();
+  const key = mode === "agent" ? CONV_ID_KEYS.agent : lifeosConvStorageKey();
   try {
     sessionStorage.setItem(key, id);
   } catch {
@@ -550,7 +645,8 @@ function setConversationId(id) {
 }
 
 function clearConversation() {
-  const key = CONV_ID_KEYS[getBackendMode()];
+  const mode = getBackendMode();
+  const key = mode === "agent" ? CONV_ID_KEYS.agent : lifeosConvStorageKey();
   try {
     sessionStorage.removeItem(key);
   } catch {
@@ -844,6 +940,9 @@ async function submitTurn({ blob, mime, transcript }) {
   const convId = getConversationId();
   if (convId) form.append("conversation_id", convId);
   form.append("backend", getBackendMode());
+  if (getBackendMode() === "lifeos") {
+    form.append("persona_id", getLifeosPersona());
+  }
 
   try {
     const res = await fetch("/api/voice/turn/stream", {
@@ -1383,6 +1482,21 @@ for (const btn of els.backendOptions) {
     closeConversationSidebar();
   });
 }
+
+if (els.personaRow) {
+  els.personaRow.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-persona]");
+    if (!btn || getBackendMode() !== "lifeos") return;
+    const next = btn.dataset.persona;
+    if (!next || next === getLifeosPersona()) return;
+    if (document.body.dataset.phase === "processing") return;
+    setLifeosPersona(next);
+    clearConversation();
+    closeConversationSidebar();
+  });
+}
+
+loadPersonas().catch(() => {});
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") persistDockSettingsFromUi();

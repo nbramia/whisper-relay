@@ -62,6 +62,8 @@ class TurnPipeline:
         conversation_id: str | None,
         client_transcript: str | None = None,
         backend: str = "lifeos",
+        persona_id: str | None = None,
+        parse_handoff: bool = True,
     ) -> VoiceTurnResponse:
         response: VoiceTurnResponse | None = None
         async for event in self.run_turn_stream(
@@ -71,6 +73,8 @@ class TurnPipeline:
             conversation_id=conversation_id,
             client_transcript=client_transcript,
             backend=backend,
+            persona_id=persona_id,
+            parse_handoff=parse_handoff,
         ):
             if event["type"] == "done":
                 response = VoiceTurnResponse(**event["data"])
@@ -90,6 +94,8 @@ class TurnPipeline:
         client_transcript: str | None = None,
         registry: TurnRegistry | None = None,
         backend: str = "lifeos",
+        persona_id: str | None = None,
+        parse_handoff: bool = True,
     ) -> AsyncIterator[dict[str, Any]]:
         turn_id = str(uuid4())
         cancel = registry.start(turn_id) if registry else None
@@ -174,6 +180,8 @@ class TurnPipeline:
                         turn_id=turn_id,
                         on_status=on_status,
                         cancel=cancel,
+                        persona_id=persona_id if backend == "lifeos" else None,
+                        parse_handoff=parse_handoff if backend == "lifeos" else False,
                     )
                     timings.lifeos = int((time.monotonic() - t0) * 1000)
                     await event_queue.put({"type": "_backend_done", "result": result})

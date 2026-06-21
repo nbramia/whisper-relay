@@ -49,9 +49,13 @@ class LifeOSClient(Protocol):
         turn_id: str,
         on_status: StatusCallback | None = None,
         cancel: Any = None,
+        persona_id: str | None = None,
+        parse_handoff: bool = True,
     ) -> LifeOSResult: ...
 
-    async def list_conversations(self) -> dict[str, Any]: ...
+    async def list_personas(self) -> dict[str, Any]: ...
+
+    async def list_conversations(self, *, persona_id: str | None = None) -> dict[str, Any]: ...
 
     async def get_conversation(self, conversation_id: str) -> dict[str, Any]: ...
 
@@ -132,6 +136,15 @@ async def consume_ask_sse_stream(
     return state
 
 
+def persona_supports_handoff(personas: list[dict[str, Any]], persona_id: str) -> bool:
+    """True when LifeOS advertises handoff capability for this persona id."""
+    for entry in personas:
+        if entry.get("id") == persona_id:
+            capabilities = entry.get("capabilities") or []
+            return "handoff" in capabilities
+    return persona_id == "primary"
+
+
 class HTTPLifeOSClient:
     def __init__(self, base_url: str, timeout_s: float = 300.0) -> None:
         self._base_url = base_url.rstrip("/")
@@ -145,10 +158,14 @@ class HTTPLifeOSClient:
         turn_id: str,
         on_status: StatusCallback | None = None,
         cancel: Any = None,
+        persona_id: str | None = None,
+        parse_handoff: bool = True,
     ) -> LifeOSResult:
         body: dict[str, Any] = {"question": question}
         if conversation_id:
             body["conversation_id"] = conversation_id
+        if persona_id:
+            body["persona_id"] = persona_id
 
         handoff: HandoffResult | None = None
 
@@ -169,10 +186,10 @@ class HTTPLifeOSClient:
                     turn_id=turn_id,
                     on_status=on_status,
                     cancel=cancel,
-                    parse_handoff=True,
+                    parse_handoff=parse_handoff,
                 )
 
-            if state.pending_engine and state.pending_task:
+            if parse_handoff and state.pending_engine and state.pending_task:
                 handoff = await self._handoff(
                     client, state.pending_engine, state.pending_task, state.conv_id
                 )
@@ -219,9 +236,19 @@ class HTTPLifeOSClient:
             session_id=data.get("session_id", ""),
         )
 
-    async def list_conversations(self) -> dict[str, Any]:
+    async def list_personas(self) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{self._base_url}/api/personas")
+            if resp.status_code != 200:
+                raise LifeOSError(f"LifeOS returned HTTP {resp.status_code}")
+            return resp.json()
+
+    async def list_conversations(self, *, persona_id: str | None = None) -> dict[str, Any]:
+        params: dict[str, str] = {}
+        if persona_id:
+            params["persona_id"] = persona_id
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(f"{self._base_url}/api/conversations")
+            resp = await client.get(f"{self._base_url}/api/conversations", params=params or None)
             if resp.status_code != 200:
                 raise LifeOSError(f"LifeOS returned HTTP {resp.status_code}")
             return resp.json()
