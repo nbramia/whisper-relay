@@ -87,6 +87,7 @@ body {
 .persona-bar {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.55rem;
   padding: 0 1rem 0.45rem;
   flex-shrink: 0;
@@ -100,9 +101,9 @@ body {
 }
 
 .persona-select {
-  flex: 1;
-  min-width: 0;
-  max-width: 100%;
+  width: auto;
+  max-width: calc(100% - 5rem);
+  field-sizing: content;
   border: 1px solid var(--surface-2);
   background: var(--surface);
   color: var(--text);
@@ -121,15 +122,6 @@ body {
 .persona-select:focus {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
-}
-
-.backend-subtitle {
-  margin: 0;
-  padding: 0 1rem 0.35rem;
-  text-align: center;
-  font-size: 0.78rem;
-  color: var(--muted);
-  flex-shrink: 0;
 }
 
 .topbar-title {

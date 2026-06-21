@@ -47,7 +47,6 @@ const els = {
   convList: document.getElementById("conv-list"),
   personaBar: document.getElementById("persona-bar"),
   personaSelect: document.getElementById("persona-select"),
-  backendSubtitle: document.getElementById("backend-subtitle"),
   backendOptions: document.querySelectorAll("[data-backend]"),
   autoContinue: document.getElementById("auto-continue"),
   muteOutput: document.getElementById("mute-output"),
@@ -569,16 +568,6 @@ function updateBackendUi() {
   }
   if (els.personaBar) {
     els.personaBar.classList.toggle("hidden", mode !== "lifeos" || cachedPersonas.length <= 1);
-  }
-  if (els.backendSubtitle) {
-    if (mode === "agent") {
-      els.backendSubtitle.textContent = "Agent mode";
-      els.backendSubtitle.classList.remove("hidden");
-    } else {
-      const persona = getActivePersona();
-      els.backendSubtitle.textContent = persona?.label ? `LifeOS · ${persona.label}` : "LifeOS mode";
-      els.backendSubtitle.classList.toggle("hidden", !persona?.label);
-    }
   }
   const sidebarTitle = document.querySelector(".conv-sidebar-header h2");
   if (sidebarTitle) {
