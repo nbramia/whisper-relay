@@ -28,8 +28,27 @@ class EmptySTT:
 
 
 class FailingLifeOS:
-    async def ask(self, question, *, conversation_id, turn_id, on_status=None, cancel=None):
+    async def ask(
+        self,
+        question,
+        *,
+        conversation_id,
+        turn_id,
+        on_status=None,
+        cancel=None,
+        persona_id=None,
+        parse_handoff=True,
+    ):
         raise LifeOSError("connection refused")
+
+    async def list_personas(self):
+        return {"personas": []}
+
+    async def list_conversations(self, *, persona_id=None):
+        return {"conversations": []}
+
+    async def get_conversation(self, conversation_id: str):
+        return {"id": conversation_id, "messages": []}
 
 
 @pytest.mark.asyncio

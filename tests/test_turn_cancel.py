@@ -11,7 +11,17 @@ from voice_gateway.turns import TurnPipeline
 
 
 class SlowStubLifeOS:
-    async def ask(self, question, *, conversation_id, turn_id, on_status=None, cancel=None):
+    async def ask(
+        self,
+        question,
+        *,
+        conversation_id,
+        turn_id,
+        on_status=None,
+        cancel=None,
+        persona_id=None,
+        parse_handoff=True,
+    ):
         if on_status:
             await on_status("Working on it…")
         for _ in range(200):
@@ -20,7 +30,14 @@ class SlowStubLifeOS:
             await asyncio.sleep(0.01)
         return LifeOSResult(answer="done", conversation_id=conversation_id or "conv-1")
 
-    async def list_conversations(self):
+    async def list_personas(self):
+        return {
+            "personas": [
+                {"id": "primary", "label": "LifeOS", "capabilities": ["handoff", "agent"]},
+            ]
+        }
+
+    async def list_conversations(self, *, persona_id=None):
         return {"conversations": []}
 
     async def get_conversation(self, conversation_id: str):

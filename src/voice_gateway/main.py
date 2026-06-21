@@ -17,7 +17,7 @@ from voice_gateway.adapters.tts import build_tts_adapter
 from voice_gateway.cancel import TurnRegistry
 from voice_gateway.config import Settings, get_settings
 from voice_gateway.logging import configure_logging
-from voice_gateway.routes import conversations, health, voice
+from voice_gateway.routes import conversations, health, personas, voice
 from voice_gateway.storage import TurnStorage
 from voice_gateway.turns import TurnPipeline
 
@@ -60,6 +60,16 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.warning("agent backend unreachable at startup — Agent mode may fail")
 
+    try:
+        app.state.lifeos_personas = await router.lifeos.list_personas()
+    except Exception:
+        logger.warning("LifeOS personas unavailable at startup — using primary default")
+        app.state.lifeos_personas = {
+            "personas": [
+                {"id": "primary", "label": "LifeOS", "capabilities": ["handoff", "agent"]},
+            ]
+        }
+
     yield
 
 
@@ -88,11 +98,17 @@ def create_app(
     app.state.pipeline = pipeline
     app.state.text_backend_router = text_backend
     app.state.lifeos_client = text_backend.lifeos
+    app.state.lifeos_personas = {
+        "personas": [
+            {"id": "primary", "label": "LifeOS", "capabilities": ["handoff", "agent"]},
+        ]
+    }
     app.state.turn_registry = TurnRegistry()
 
     app.include_router(health.router)
     app.include_router(voice.router)
     app.include_router(conversations.router)
+    app.include_router(personas.router)
 
     if STATIC_DIR.is_dir():
         app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")

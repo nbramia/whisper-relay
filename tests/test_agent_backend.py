@@ -7,7 +7,7 @@ from httpx import ASGITransport, AsyncClient
 
 from conftest import StubLifeOSClient
 from voice_gateway.adapters.agent_backend import HTTPAgentBackendClient
-from voice_gateway.adapters.lifeos import LifeOSCancelled, LifeOSResult
+from voice_gateway.adapters.lifeos import LifeOSCancelled, LifeOSError, LifeOSResult
 from voice_gateway.adapters.stt import StubSTTAdapter
 from voice_gateway.adapters.text_backend import TextBackendRouter
 from voice_gateway.adapters.tts import NullTTSAdapter
@@ -22,7 +22,17 @@ class AgentStubClient:
     def __init__(self) -> None:
         self.last_question: str | None = None
 
-    async def ask(self, question, *, conversation_id, turn_id, on_status=None, cancel=None):
+    async def ask(
+        self,
+        question,
+        *,
+        conversation_id,
+        turn_id,
+        on_status=None,
+        cancel=None,
+        persona_id=None,
+        parse_handoff=True,
+    ):
         self.last_question = question
         if on_status:
             await on_status("Agent is thinking…")
@@ -32,7 +42,10 @@ class AgentStubClient:
             statuses=["Agent is thinking…"],
         )
 
-    async def list_conversations(self):
+    async def list_personas(self):
+        raise LifeOSError("agent backend has no LifeOS personas")
+
+    async def list_conversations(self, *, persona_id=None):
         return {"conversations": [{"id": "agent-conv-1", "title": "Agent thread"}]}
 
     async def get_conversation(self, conversation_id: str):

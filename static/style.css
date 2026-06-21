@@ -84,6 +84,48 @@ body {
   color: #fff;
 }
 
+.persona-row {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0 1rem 0.35rem;
+  overflow-x: auto;
+  flex-shrink: 0;
+  scrollbar-width: none;
+}
+
+.persona-row::-webkit-scrollbar {
+  display: none;
+}
+
+.persona-option {
+  border: 1px solid var(--surface-2);
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.persona-option.active {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.backend-subtitle {
+  margin: 0;
+  padding: 0 1rem 0.35rem;
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
 .topbar-title {
   text-align: center;
 }
