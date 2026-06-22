@@ -153,3 +153,81 @@ async def test_claude_code_override_enables_handoff_on_no_handoff_persona(client
     assert resp.status_code == 200
     assert lifeos.last_model_override == "claude_code"
     assert lifeos.last_parse_handoff is True
+
+
+@pytest.mark.asyncio
+async def test_explicit_claude_code_triggers_handoff_http(lifeos_sse_fixture, lifeos_handoff_fixture):
+    sse = lifeos_sse_fixture.replace(
+        'data: {"type": "done"}',
+        'data: {"type": "claude_intent", "engine": "claude_code", "task": "refactor auth"}\n\n'
+        'data: {"type": "done"}',
+    )
+    client = HTTPLifeOSClient("http://lifeos.test")
+
+    async def fake_aiter_lines():
+        for line in sse.splitlines():
+            yield line
+
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 200
+    mock_resp.aiter_lines = fake_aiter_lines
+    mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = AsyncMock(return_value=None)
+
+    handoff_resp = MagicMock()
+    handoff_resp.status_code = 200
+    handoff_resp.json = MagicMock(return_value=lifeos_handoff_fixture)
+
+    mock_http = AsyncMock()
+    mock_http.stream = MagicMock(return_value=mock_resp)
+    mock_http.post = AsyncMock(return_value=handoff_resp)
+    mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+    mock_http.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("voice_gateway.adapters.lifeos.httpx.AsyncClient", return_value=mock_http):
+        result = await client.ask(
+            "refactor auth",
+            conversation_id="c1",
+            turn_id="t3",
+            persona_id="fitness",
+            model_override="claude_code",
+            parse_handoff=True,
+        )
+
+    stream_body = mock_http.stream.call_args.kwargs["json"]
+    assert stream_body["model_override"] == "claude_code"
+    assert result.handoff is not None
+    assert result.handoff.engine == "claude_code"
+    mock_http.post.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_unknown_model_override_forwarded_to_lifeos(lifeos_sse_fixture):
+    client = HTTPLifeOSClient("http://lifeos.test")
+
+    async def fake_aiter_lines():
+        for line in lifeos_sse_fixture.splitlines():
+            yield line
+
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 200
+    mock_resp.aiter_lines = fake_aiter_lines
+    mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = AsyncMock(return_value=None)
+
+    mock_http = AsyncMock()
+    mock_http.stream = MagicMock(return_value=mock_resp)
+    mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+    mock_http.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("voice_gateway.adapters.lifeos.httpx.AsyncClient", return_value=mock_http):
+        await client.ask(
+            "hello",
+            conversation_id=None,
+            turn_id="t4",
+            model_override="bogus",
+            parse_handoff=False,
+        )
+
+    body = mock_http.stream.call_args.kwargs["json"]
+    assert body["model_override"] == "bogus"
