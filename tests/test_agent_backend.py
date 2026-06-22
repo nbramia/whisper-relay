@@ -261,32 +261,6 @@ async def test_agent_turn_ignores_model_override(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_conversations_proxy_agent_backend(client):
-    agent = AgentStubClient()
-    app = client._transport.app
-    app.state.text_backend_router = TextBackendRouter(StubLifeOSClient(), agent)
-
-    resp = await client.get("/api/voice/conversations", params={"backend": "agent"})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["conversations"][0]["id"] == "agent-conv-1"
-
-
-@pytest.mark.asyncio
-async def test_get_conversation_proxy_agent_backend(client):
-    agent = AgentStubClient()
-    app = client._transport.app
-    app.state.text_backend_router = TextBackendRouter(StubLifeOSClient(), agent)
-
-    resp = await client.get(
-        "/api/voice/conversations/agent-conv-99",
-        params={"backend": "agent"},
-    )
-    assert resp.status_code == 200
-    assert resp.json()["id"] == "agent-conv-99"
-
-
-@pytest.mark.asyncio
 async def test_voice_turn_stream_agent_backend(tmp_path):
     settings = Settings(data_dir=tmp_path, tts_backend="null")
     storage = TurnStorage(settings.turns_dir)

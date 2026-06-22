@@ -1,31 +1,18 @@
 #!/usr/bin/env bash
-# Expose whisper-relay on the tailnet. Run after uvicorn is listening locally.
+# Deprecated — Tailscale HTTPS serves LifeOS /chat (ADR-005), not whisper-relay UI.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-if [[ -f "${DEPLOY_ENV_FILE:-$ROOT/.env}" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "${DEPLOY_ENV_FILE:-$ROOT/.env}"
-  set +a
-fi
+cat <<'EOF' >&2
+whisper-relay no longer exposes a browser UI on the tailnet.
 
-PORT="${VOICE_GATEWAY_PORT:-9788}"
-HTTP_PORT="${TAILNET_HTTP_PORT:-8888}"
-BACKEND="http://127.0.0.1:${PORT}"
+Use LifeOS instead:
+  cd ~/Code/LifeOS
+  ./scripts/install-systemd-tailscale.sh
+  systemctl --user enable --now lifeos-tailscale.service
 
-# HTTPS on 443 — required for phone microphone (use TAILNET_HTTPS_URL from .env)
-tailscale serve --bg "${BACKEND}"
+Disable the old unit if still enabled:
+  systemctl --user disable --now whisper-relay-tailscale.service
 
-# Plain HTTP on TAILNET_HTTP_PORT — page loads only; mic still needs HTTPS above
-tailscale serve --bg --http="${HTTP_PORT}" "${BACKEND}"
-
-echo "whisper-relay tailnet URLs:"
-if [[ -n "${TAILNET_HTTPS_URL:-}" ]]; then
-  echo "  HTTPS (mic): ${TAILNET_HTTPS_URL}"
-  if [[ -n "${TAILNET_HTTP_PORT:-}" ]]; then
-    host="${TAILNET_HTTPS_URL#https://}"
-    echo "  HTTP (no mic): http://${host}:${HTTP_PORT}"
-  fi
-fi
-tailscale serve status
+Phone bookmark: https://<machine>.<tailnet>.ts.net/chat
+EOF
+exit 1

@@ -5,7 +5,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 "${ROOT}/scripts/install-systemd-user.sh"
-"${ROOT}/scripts/install-systemd-tailscale.sh"
 
 if [[ "$(loginctl show-user "${USER}" -p Linger --value 2>/dev/null || true)" != "yes" ]]; then
   echo "Enabling systemd linger for ${USER} (starts user services at boot without login)..."
@@ -14,10 +13,10 @@ fi
 
 systemctl --user daemon-reload
 systemctl --user enable --now whisper-relay.service
-systemctl --user enable --now whisper-relay-tailscale.service
 
 echo ""
-echo "Autostart enabled."
+echo "Autostart enabled (API only — client UI is LifeOS /chat)."
 echo "  systemctl --user status whisper-relay"
-echo "  systemctl --user status whisper-relay-tailscale"
 echo "  journalctl --user -u whisper-relay -f"
+echo ""
+echo "Tailscale HTTPS: use LifeOS scripts/setup-tailscale.sh (not whisper-relay-tailscale)."

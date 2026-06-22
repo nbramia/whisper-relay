@@ -133,23 +133,6 @@ async def test_lifeos_client_list_conversations_persona_filter():
     )
 
 
-@pytest.mark.asyncio
-async def test_personas_proxy(client):
-    resp = await client.get("/api/voice/personas")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert any(p["id"] == "primary" for p in data["personas"])
-
-
-@pytest.mark.asyncio
-async def test_conversations_proxy_persona_filter(client, pipeline):
-    lifeos = pipeline._text_backend.lifeos
-    resp = await client.get("/api/voice/conversations", params={"persona_id": "fitness"})
-    assert resp.status_code == 200
-    assert lifeos.last_list_persona_id == "fitness"
-
-
-@pytest.mark.asyncio
 async def test_turn_includes_persona_id(client, pipeline):
     lifeos = pipeline._text_backend.lifeos
     resp = await client.post(

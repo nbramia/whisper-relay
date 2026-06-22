@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 
 from voice_gateway.adapters.agent_backend import HTTPAgentBackendClient
 from voice_gateway.adapters.lifeos import HTTPLifeOSClient
@@ -17,13 +15,11 @@ from voice_gateway.adapters.tts import build_tts_adapter
 from voice_gateway.cancel import TurnRegistry
 from voice_gateway.config import Settings, get_settings
 from voice_gateway.logging import configure_logging
-from voice_gateway.routes import conversations, health, personas, voice
+from voice_gateway.routes import health, root, voice
 from voice_gateway.storage import TurnStorage
 from voice_gateway.turns import TurnPipeline
 
 logger = logging.getLogger(__name__)
-
-STATIC_DIR = Path(__file__).resolve().parent.parent.parent / "static"
 
 
 def build_text_backend_router(settings: Settings) -> TextBackendRouter:
@@ -107,11 +103,7 @@ def create_app(
 
     app.include_router(health.router)
     app.include_router(voice.router)
-    app.include_router(conversations.router)
-    app.include_router(personas.router)
-
-    if STATIC_DIR.is_dir():
-        app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
+    app.include_router(root.router)
 
     return app
 
