@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
     host: str = Field(default="0.0.0.0", alias="VOICE_GATEWAY_HOST")
-    port: int = Field(default=8888, alias="VOICE_GATEWAY_PORT")
+    port: int = Field(default=9788, alias="VOICE_GATEWAY_PORT")
     data_dir: Path = Field(default=_DEFAULT_DATA, alias="VOICE_GATEWAY_DATA_DIR")
 
     lifeos_base_url: str = Field(default="http://127.0.0.1:8000", alias="LIFEOS_BASE_URL")

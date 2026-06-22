@@ -80,7 +80,7 @@ bash scripts/setup-kokoro.sh
 # If .env is a symlink, cp overwrites the link target — edit the Sync copy directly.
 
 # Run (internal port — Tailscale Serve proxies this to the tailnet)
-uvicorn voice_gateway.main:app --host 127.0.0.1 --port "${VOICE_GATEWAY_PORT:-8888}"
+uvicorn voice_gateway.main:app --host 127.0.0.1 --port "${VOICE_GATEWAY_PORT:-9788}"
 
 # Expose on tailnet (run scripts/setup-tailscale.sh once)
 bash scripts/setup-tailscale.sh
@@ -98,6 +98,16 @@ Open your **`TAILNET_HTTPS_URL`** on your phone (note `https`, no port). HTTP on
 
 For CI or local dev without Kokoro models, set `TTS_BACKEND=null` in `.env`.
 
+### LifeOS integration (voice transport prep)
+
+When LifeOS `/chat` hosts the unified client ([ADR-005](docs/adr/005-lifeos-owned-chat-client.md)), LifeOS reverse-proxies `/api/voice/*` to whisper-relay so the browser stays same-origin. Set in **LifeOS** `.env`:
+
+```bash
+VOICE_GATEWAY_URL=http://127.0.0.1:9788
+```
+
+whisper-relay listens on `127.0.0.1:9788` by default (`VOICE_GATEWAY_PORT=9788`). Direct browser → whisper-relay calls with CORS are a documented fallback only, not the primary path.
+
 ### Agent mode smoke test
 
 With [voice-adapter](https://github.com/nbramia/agents) running (`curl -s localhost:8100/healthz` → `{"ok":true,...}`):
@@ -105,7 +115,7 @@ With [voice-adapter](https://github.com/nbramia/agents) running (`curl -s localh
 1. Set `AGENT_BACKEND_URL=http://127.0.0.1:8100` in `.env`
 2. Open the mobile UI over Tailscale HTTPS
 3. Toggle **Agent** in the top bar and speak a turn
-4. Optional: `curl -s localhost:8888/health/backends` — both backends should report reachability when services are up
+4. Optional: `curl -s localhost:9788/health/backends` — both backends should report reachability when services are up
 
 ## Prerequisites
 
@@ -162,6 +172,7 @@ sudo systemctl enable --now whisper-relay
 | [ADR-002](docs/adr/002-upstream-integration-boundaries.md) | linux-whisper + LifeOS integration boundaries |
 | [ADR-003](docs/adr/003-kokoro-tts-bm-george.md) | Kokoro TTS — `bm_george` voice |
 | [ADR-004](docs/adr/004-dual-text-backends.md) | LifeOS vs Agent backend toggle |
+| [ADR-005](docs/adr/005-lifeos-owned-chat-client.md) | LifeOS-owned `/chat` client; reverse-proxy integration (Proposed) |
 
 ## License
 

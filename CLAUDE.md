@@ -71,7 +71,7 @@ pip install -e ".[dev]"
 pip install -e ../linux-whisper
 ruff check src tests
 pytest
-uvicorn voice_gateway.main:app --host 127.0.0.1 --port 8888
+uvicorn voice_gateway.main:app --host 127.0.0.1 --port 9788
 ```
 
 LifeOS must be running separately: `http://127.0.0.1:8000/health/full`

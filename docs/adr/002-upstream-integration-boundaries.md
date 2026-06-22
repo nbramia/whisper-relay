@@ -111,7 +111,7 @@ See **[ADR-003](003-kokoro-tts-bm-george.md)** for backend choice, voice, model 
 | `/api/chat/handoff` on intent | LifeOS owns spawns; gateway mirrors web chat — not re-hosting |
 | Status TTS | Audio parity with chat UI status messages during long tool rounds |
 | ffmpeg server-side | Reliable format normalization from Chrome webm/opus |
-| Port 8888 | Default; override with `VOICE_GATEWAY_PORT` in `.env` if needed |
+| Port 9788 | Default bind port ([ADR-005](005-lifeos-owned-chat-client.md)); override with `VOICE_GATEWAY_PORT` |
 
 ## Alternatives considered
 
@@ -161,7 +161,7 @@ src/voice_gateway/adapters/
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `VOICE_GATEWAY_PORT` | `8888` | Bind port |
+| `VOICE_GATEWAY_PORT` | `9788` | Bind port ([ADR-005](005-lifeos-owned-chat-client.md)) |
 | `LIFEOS_BASE_URL` | `http://127.0.0.1:8000` | LifeOS HTTP client target |
 | `LINUX_WHISPER_CONFIG` | `~/.config/linux-whisper/config.yaml` | Shared with desktop app |
 | `FFMPEG_BIN` | `ffmpeg` | Audio normalization |
@@ -174,7 +174,7 @@ TTS env vars: [ADR-003](003-kokoro-tts-bm-george.md).
 2. linux-whisper installed with models; same config as desktop dictation.
 3. ffmpeg on PATH.
 4. Kokoro model files + espeak-ng ([ADR-003](003-kokoro-tts-bm-george.md)).
-5. Tailscale Serve exposing `127.0.0.1:8888` to the tailnet.
+5. Tailscale Serve exposing LifeOS `/chat` (primary) or whisper-relay `127.0.0.1:9788` (interim / API). See [ADR-005](005-lifeos-owned-chat-client.md).
 
 ## Related Documents
 
@@ -182,6 +182,7 @@ TTS env vars: [ADR-003](003-kokoro-tts-bm-george.md).
 - [ADR-003: Kokoro TTS with bm_george](003-kokoro-tts-bm-george.md)
 - [Code conventions](../specs/standards/code-conventions.md)
 - [Testing standards](../specs/standards/testing-standards.md)
+- [ADR-005: LifeOS-owned chat client](005-lifeos-owned-chat-client.md)
 - LifeOS API reference — `/api/ask/stream` (upstream `docs/specs/product/api-reference.md`)
 - linux-whisper README (upstream repo)
 - GitHub issues #3–#7 (issue tracker)

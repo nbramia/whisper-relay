@@ -10,7 +10,7 @@ if [[ -f "${DEPLOY_ENV_FILE:-$ROOT/.env}" ]]; then
   set +a
 fi
 
-PORT="${VOICE_GATEWAY_PORT:-8888}"
+PORT="${VOICE_GATEWAY_PORT:-9788}"
 HTTP_PORT="${TAILNET_HTTP_PORT:-8888}"
 BACKEND="http://127.0.0.1:${PORT}"
 
