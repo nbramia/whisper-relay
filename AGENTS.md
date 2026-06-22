@@ -31,6 +31,7 @@ Rules in [docs/AGENTS.md](docs/AGENTS.md) are mandatory. Navigation:
 | Why transport layer, not agent? | [ADR-001](docs/adr/001-voice-transport-layer.md) |
 | How do we call linux-whisper and LifeOS? | [ADR-002](docs/adr/002-upstream-integration-boundaries.md) |
 | LifeOS vs Agent backend toggle | [ADR-004](docs/adr/004-dual-text-backends.md) |
+| LifeOS-owned client + reverse proxy | [ADR-005](docs/adr/005-lifeos-owned-chat-client.md) (Proposed) |
 | Development principles (source) | [docs/development-principles.md](docs/development-principles.md) |
 | Python code conventions | [docs/specs/standards/code-conventions.md](docs/specs/standards/code-conventions.md) |
 | Testing standards | [docs/specs/standards/testing-standards.md](docs/specs/standards/testing-standards.md) |
@@ -81,7 +82,7 @@ These are structural — violations are bugs, not style nits:
 
 **Stack (planned):** Python 3.12+, FastAPI, uvicorn, httpx, pydantic-settings, ffmpeg (system), linux-whisper (editable dep), LifeOS (HTTP only).
 
-**Default port:** `8888` (override with `VOICE_GATEWAY_PORT` in `.env`).
+**Default port:** `9788` (override with `VOICE_GATEWAY_PORT` in `.env`). LifeOS reads `VOICE_GATEWAY_URL=http://127.0.0.1:9788` for reverse proxy — see [ADR-005](docs/adr/005-lifeos-owned-chat-client.md).
 
 **Sibling repos (local checkout):**
 
@@ -96,7 +97,7 @@ pip install -e ".[dev]"
 pip install -e ../linux-whisper
 ruff check src tests && ruff format --check src tests
 pytest
-uvicorn voice_gateway.main:app --host 127.0.0.1 --port 8888
+uvicorn voice_gateway.main:app --host 127.0.0.1 --port 9788
 ```
 
 ---

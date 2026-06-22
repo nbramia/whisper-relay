@@ -17,7 +17,7 @@ fi
 REPO_DIR="${DEPLOY_REPO_DIR:-$ROOT}"
 ENV_PATH="${DEPLOY_ENV_FILE:-$ROOT/.env}"
 UVICORN_BIN="${DEPLOY_UVICORN:-$(command -v uvicorn)}"
-PORT="${VOICE_GATEWAY_PORT:-8888}"
+PORT="${VOICE_GATEWAY_PORT:-9788}"
 HOST="${VOICE_GATEWAY_HOST:-127.0.0.1}"
 
 DEST="/etc/systemd/system/whisper-relay.service"

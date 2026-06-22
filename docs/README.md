@@ -9,6 +9,7 @@
 | Why transport layer, not agent | [adr/001](adr/001-voice-transport-layer.md) | README links here |
 | linux-whisper + LifeOS integration | [adr/002](adr/002-upstream-integration-boundaries.md) | Issues #4, #5 cite this |
 | Dual text backends (LifeOS + Agent) | [adr/004](adr/004-dual-text-backends.md) | UI toggle; voice-adapter in agents repo |
+| LifeOS-owned client + reverse proxy | [adr/005](adr/005-lifeos-owned-chat-client.md) | Proposed; port `:9788`, `VOICE_GATEWAY_URL` |
 | TTS (Kokoro, `bm_george`, env vars) | [adr/003](adr/003-kokoro-tts-bm-george.md) | Do not duplicate config elsewhere |
 | Engineering process (generic) | [development-principles.md](development-principles.md) | AGENTS.md links; no project-specific duplication |
 | Python / test standards | [specs/standards/](specs/standards/) | — |
@@ -24,6 +25,7 @@
 | [002](adr/002-upstream-integration-boundaries.md) | Upstream integration |
 | [003](adr/003-kokoro-tts-bm-george.md) | Kokoro TTS |
 | [004](adr/004-dual-text-backends.md) | Dual text backends (LifeOS + Agent) |
+| [005](adr/005-lifeos-owned-chat-client.md) | LifeOS-owned `/chat` client (Proposed) |
 
 Rules: [adr/AGENTS.md](adr/AGENTS.md)
 
