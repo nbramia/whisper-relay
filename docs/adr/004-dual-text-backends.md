@@ -35,7 +35,7 @@ Implementation:
 - `HTTPLifeOSClient` — unchanged LifeOS semantics including handoff.
 - `HTTPAgentBackendClient` — same SSE parser, no handoff path; optional `AGENT_BACKEND_TOKEN` bearer auth.
 - Mobile UI stores **separate `conversation_id` values** per backend in `sessionStorage`.
-- **LifeOS mode only:** persona selector populated from LifeOS `GET /api/personas`; turns send `persona_id`; conversation ids and sidebar are scoped per persona. Engine handoffs follow each persona's advertised `capabilities` (not a hardcoded primary check). Agent mode has no persona dimension.
+- **LifeOS mode only:** persona and conversation listing live in LifeOS `/chat`; voice turns send `persona_id` and `model_override` through the gateway. Engine handoffs follow persona `capabilities` unless the user explicitly picks `claude_code`/`codex` ([issue #24](https://github.com/nbramia/whisper-relay/issues/24)).
 
 ### Invariants preserved
 

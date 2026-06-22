@@ -4,11 +4,11 @@
 > **Status:** Complete
 > **Last Updated:** 2026-06-18
 
-whisper-relay is a **voice transport layer** for **LifeOS**. It turns speech into text via **linux-whisper**, submits that text to LifeOS exactly as web chat or Telegram would, then speaks LifeOS's response back to a mobile browser.
+whisper-relay is a **voice transport API** for **LifeOS** and optional **OpenClaw Agent** mode. LifeOS responsive `/chat` is the client surface ([ADR-005](docs/adr/005-lifeos-owned-chat-client.md)); this repo exposes the voice turn API behind LifeOS's reverse proxy.
 
-**What it is:** a client surface of LifeOS — like `web/index.html` or `api/services/telegram.py`.
+**What it is:** voice transport behind LifeOS — like `api/routes/voice.py` proxied to localhost.
 
-**What it is not:** an agent, an orchestrator, or a second copy of LifeOS tools.
+**What it is not:** an agent, an orchestrator, a chat UI, or a second copy of LifeOS tools.
 
 ---
 
@@ -31,7 +31,7 @@ Rules in [docs/AGENTS.md](docs/AGENTS.md) are mandatory. Navigation:
 | Why transport layer, not agent? | [ADR-001](docs/adr/001-voice-transport-layer.md) |
 | How do we call linux-whisper and LifeOS? | [ADR-002](docs/adr/002-upstream-integration-boundaries.md) |
 | LifeOS vs Agent backend toggle | [ADR-004](docs/adr/004-dual-text-backends.md) |
-| LifeOS-owned client + reverse proxy | [ADR-005](docs/adr/005-lifeos-owned-chat-client.md) (Proposed) |
+| LifeOS-owned client + reverse proxy | [ADR-005](docs/adr/005-lifeos-owned-chat-client.md) (Accepted) |
 | Development principles (source) | [docs/development-principles.md](docs/development-principles.md) |
 | Python code conventions | [docs/specs/standards/code-conventions.md](docs/specs/standards/code-conventions.md) |
 | Testing standards | [docs/specs/standards/testing-standards.md](docs/specs/standards/testing-standards.md) |
@@ -78,7 +78,7 @@ These are structural — violations are bugs, not style nits:
 | FastAPI service | Implemented |
 | Adapters (STT / LifeOS / Agent / TTS) | Implemented |
 | Voice turn API | Implemented |
-| Mobile web UI | Implemented |
+| Client UI | **LifeOS `/chat`** (whisper-relay `static/` removed — #21) |
 
 **Stack (planned):** Python 3.12+, FastAPI, uvicorn, httpx, pydantic-settings, ffmpeg (system), linux-whisper (editable dep), LifeOS (HTTP only).
 

@@ -8,7 +8,8 @@ bash scripts/install-autostart.sh
 
 # Or step-by-step:
 bash scripts/install-systemd-user.sh
-bash scripts/install-systemd-tailscale.sh
+
+# Tailscale HTTPS serves LifeOS /chat — see LifeOS scripts/setup-tailscale.sh
 
 # System-wide service (set DEPLOY_SYSTEMD_USER in .env)
 bash scripts/install-systemd.sh

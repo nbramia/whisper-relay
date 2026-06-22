@@ -10,7 +10,7 @@ Architecture Decision Records for whisper-relay — **append-only** decision jou
 | [002](002-upstream-integration-boundaries.md) | linux-whisper + LifeOS integration |
 | [003](003-kokoro-tts-bm-george.md) | Kokoro TTS — `bm_george` voice |
 | [004](004-dual-text-backends.md) | Dual text backends (LifeOS + Agent) |
-| [005](005-lifeos-owned-chat-client.md) | LifeOS-owned `/chat` client (Proposed) |
+| [005](005-lifeos-owned-chat-client.md) | LifeOS-owned `/chat` client (Accepted) |
 
 ## Key Principles
 
@@ -20,7 +20,7 @@ Architecture Decision Records for whisper-relay — **append-only** decision jou
 - End every ADR with `## Related Documents`
 - TTS backend selection is **ADR-003** (Kokoro `bm_george`)
 - LifeOS vs OpenClaw Agent routing is **ADR-004** (voice-adapter HTTP client)
-- LifeOS-owned client consolidation is **ADR-005** (reverse proxy, port `:9788`; Proposed until #21)
+- LifeOS-owned client consolidation is **ADR-005** (reverse proxy, port `:9788`; Accepted — API-only after #21)
 
 ## Related Documents
 
