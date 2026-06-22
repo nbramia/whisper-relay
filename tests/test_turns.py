@@ -37,6 +37,7 @@ class FailingLifeOS:
         on_status=None,
         cancel=None,
         persona_id=None,
+        model_override=None,
         parse_handoff=True,
     ):
         raise LifeOSError("connection refused")

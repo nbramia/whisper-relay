@@ -9,7 +9,11 @@ from uuid import UUID
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
-from voice_gateway.adapters.lifeos import persona_supports_handoff
+from voice_gateway.adapters.lifeos import (
+    handoff_override_for_model,
+    normalize_model_override,
+    persona_supports_handoff,
+)
 from voice_gateway.adapters.text_backend import BACKEND_LIFEOS, normalize_backend
 from voice_gateway.cancel import TurnRegistry
 from voice_gateway.models import VoiceTurnResponse
@@ -26,9 +30,16 @@ def _personas_cache(request: Request) -> list[dict]:
     return [{"id": "primary", "label": "LifeOS", "capabilities": ["handoff", "agent"]}]
 
 
-def _parse_handoff_enabled(request: Request, backend: str, persona_id: str | None) -> bool:
+def _parse_handoff_enabled(
+    request: Request,
+    backend: str,
+    persona_id: str | None,
+    model_override: str | None = None,
+) -> bool:
     if normalize_backend(backend) != BACKEND_LIFEOS:
         return False
+    if handoff_override_for_model(model_override):
+        return True
     pid = (persona_id or "primary").strip() or "primary"
     return persona_supports_handoff(_personas_cache(request), pid)
 
@@ -74,6 +85,7 @@ async def voice_turn(
     conversation_id: str | None = Form(default=None),
     backend: str = Form(default="lifeos"),
     persona_id: str | None = Form(default=None),
+    model_override: str | None = Form(default=None),
 ) -> VoiceTurnResponse:
     pipeline = _get_pipeline(request)
     raw, content_type, filename, conv_id, client_transcript = await _read_turn_upload(
@@ -81,6 +93,7 @@ async def voice_turn(
     )
     backend_kind = normalize_backend(backend)
     pid = (persona_id or "primary").strip() or "primary" if backend_kind == BACKEND_LIFEOS else None
+    model = normalize_model_override(model_override)
 
     try:
         return await pipeline.run_turn(
@@ -91,7 +104,8 @@ async def voice_turn(
             client_transcript=client_transcript,
             backend=backend_kind,
             persona_id=pid,
-            parse_handoff=_parse_handoff_enabled(request, backend_kind, pid),
+            model_override=model,
+            parse_handoff=_parse_handoff_enabled(request, backend_kind, pid, model),
         )
     except TurnError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -105,6 +119,7 @@ async def voice_turn_stream(
     conversation_id: str | None = Form(default=None),
     backend: str = Form(default="lifeos"),
     persona_id: str | None = Form(default=None),
+    model_override: str | None = Form(default=None),
 ) -> StreamingResponse:
     pipeline = _get_pipeline(request)
     raw, content_type, filename, conv_id, client_transcript = await _read_turn_upload(
@@ -112,7 +127,8 @@ async def voice_turn_stream(
     )
     backend_kind = normalize_backend(backend)
     pid = (persona_id or "primary").strip() or "primary" if backend_kind == BACKEND_LIFEOS else None
-    parse_handoff = _parse_handoff_enabled(request, backend_kind, pid)
+    model = normalize_model_override(model_override)
+    parse_handoff = _parse_handoff_enabled(request, backend_kind, pid, model)
 
     async def event_stream():
         registry: TurnRegistry = request.app.state.turn_registry
@@ -125,6 +141,7 @@ async def voice_turn_stream(
             registry=registry,
             backend=backend_kind,
             persona_id=pid,
+            model_override=model,
             parse_handoff=parse_handoff,
         ):
             yield f"data: {json.dumps(event)}\n\n"
