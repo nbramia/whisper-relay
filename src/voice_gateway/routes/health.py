@@ -22,7 +22,10 @@ async def health_backends(request: Request) -> dict:
 
     lifeos_ok = False
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
+        # LifeOS /health/full runs ~12 service checks and can take 5-6s; give the
+        # probe comfortable headroom so a healthy-but-slow backend isn't reported
+        # unreachable here (whisper-relay#27 follow-up).
+        async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(f"{settings.lifeos_base_url.rstrip('/')}/health/full")
             lifeos_ok = resp.status_code == 200
     except Exception:

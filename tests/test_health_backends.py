@@ -39,6 +39,33 @@ async def test_health_backends_reports_reachability(client):
 
 
 @pytest.mark.asyncio
+async def test_health_backends_lifeos_probe_allows_slow_full_check(client):
+    # LifeOS /health/full runs ~12 checks (~5-6s); the probe timeout must exceed
+    # that so a healthy-but-slow backend isn't shown unreachable (#27 follow-up).
+    app = client._transport.app
+    agent = HTTPAgentBackendClient("http://agent.test")
+    app.state.text_backend_router = TextBackendRouter(StubLifeOSClient(), agent)
+
+    mock_lifeos_resp = MagicMock()
+    mock_lifeos_resp.status_code = 200
+
+    with (
+        patch("voice_gateway.routes.health.httpx.AsyncClient") as lifeos_http_cls,
+        patch.object(agent, "health_check", new=AsyncMock(return_value=True)),
+    ):
+        lifeos_http = AsyncMock()
+        lifeos_http.get = AsyncMock(return_value=mock_lifeos_resp)
+        lifeos_http.__aenter__ = AsyncMock(return_value=lifeos_http)
+        lifeos_http.__aexit__ = AsyncMock(return_value=None)
+        lifeos_http_cls.return_value = lifeos_http
+
+        await client.get("/health/backends")
+
+    timeout = lifeos_http_cls.call_args.kwargs.get("timeout")
+    assert timeout is not None and timeout >= 8.0  # headroom over the ~5-6s /health/full
+
+
+@pytest.mark.asyncio
 async def test_health_backends_agent_not_configured(tmp_path):
     settings = Settings(data_dir=tmp_path, tts_backend="null", agent_backend_enabled=False)
     app = create_app(settings)
