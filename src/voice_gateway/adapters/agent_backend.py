@@ -42,6 +42,7 @@ class HTTPAgentBackendClient:
         on_status: StatusCallback | None = None,
         cancel: Any = None,
         persona_id: str | None = None,
+        model_override: str | None = None,
         parse_handoff: bool = True,
     ) -> LifeOSResult:
         body: dict[str, Any] = {"question": question}

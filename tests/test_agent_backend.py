@@ -21,6 +21,7 @@ from voice_gateway.turns import TurnPipeline
 class AgentStubClient:
     def __init__(self) -> None:
         self.last_question: str | None = None
+        self.last_model_override: str | None = None
 
     async def ask(
         self,
@@ -31,9 +32,11 @@ class AgentStubClient:
         on_status=None,
         cancel=None,
         persona_id=None,
+        model_override=None,
         parse_handoff=True,
     ):
         self.last_question = question
+        self.last_model_override = model_override
         if on_status:
             await on_status("Agent is thinking…")
         return LifeOSResult(
@@ -230,6 +233,34 @@ async def test_agent_turn_ignores_persona_id(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_agent_turn_ignores_model_override(tmp_path):
+    settings = Settings(data_dir=tmp_path, tts_backend="null")
+    storage = TurnStorage(settings.turns_dir)
+    agent = AgentStubClient()
+    pipeline = TurnPipeline(
+        settings,
+        storage,
+        StubSTTAdapter("hello"),
+        TextBackendRouter(StubLifeOSClient(), agent),
+        NullTTSAdapter(),
+    )
+    app = create_app(settings, pipeline=pipeline)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/voice/turn",
+            data={
+                "backend": "agent",
+                "transcript": "hello",
+                "model_override": "sonnet",
+            },
+        )
+    assert resp.status_code == 200
+    assert agent.last_model_override is None
+
+
+@pytest.mark.asyncio
 async def test_conversations_proxy_agent_backend(client):
     agent = AgentStubClient()
     app = client._transport.app
@@ -323,6 +354,7 @@ class SlowAgentStub:
         on_status=None,
         cancel=None,
         persona_id=None,
+        model_override=None,
         parse_handoff=True,
     ):
         if on_status:

@@ -50,6 +50,7 @@ class LifeOSClient(Protocol):
         on_status: StatusCallback | None = None,
         cancel: Any = None,
         persona_id: str | None = None,
+        model_override: str | None = None,
         parse_handoff: bool = True,
     ) -> LifeOSResult: ...
 
@@ -145,6 +146,21 @@ def persona_supports_handoff(personas: list[dict[str, Any]], persona_id: str) ->
     return persona_id == "primary"
 
 
+def normalize_model_override(value: str | None) -> str | None:
+    """Return a model_override for LifeOS, or None when unset/auto (omit from body)."""
+    if not value:
+        return None
+    normalized = value.strip().lower()
+    if not normalized or normalized == "auto":
+        return None
+    return normalized
+
+
+def handoff_override_for_model(model_override: str | None) -> bool:
+    """Explicit engine picks must parse claude_intent even on no-handoff personas."""
+    return normalize_model_override(model_override) in ("claude_code", "codex")
+
+
 class HTTPLifeOSClient:
     def __init__(self, base_url: str, timeout_s: float = 300.0) -> None:
         self._base_url = base_url.rstrip("/")
@@ -159,6 +175,7 @@ class HTTPLifeOSClient:
         on_status: StatusCallback | None = None,
         cancel: Any = None,
         persona_id: str | None = None,
+        model_override: str | None = None,
         parse_handoff: bool = True,
     ) -> LifeOSResult:
         body: dict[str, Any] = {"question": question}
@@ -166,6 +183,9 @@ class HTTPLifeOSClient:
             body["conversation_id"] = conversation_id
         if persona_id:
             body["persona_id"] = persona_id
+        override = normalize_model_override(model_override)
+        if override:
+            body["model_override"] = override
 
         handoff: HandoffResult | None = None
 

@@ -25,6 +25,7 @@ class StubLifeOSClient:
         self.answer = answer
         self.last_question: str | None = None
         self.last_persona_id: str | None = None
+        self.last_model_override: str | None = None
         self.last_parse_handoff: bool = True
         self.last_list_persona_id: str | None = None
 
@@ -37,10 +38,12 @@ class StubLifeOSClient:
         on_status=None,
         cancel=None,
         persona_id=None,
+        model_override=None,
         parse_handoff=True,
     ):
         self.last_question = question
         self.last_persona_id = persona_id
+        self.last_model_override = model_override
         self.last_parse_handoff = parse_handoff
         if on_status:
             await on_status("Searching your calendar…")

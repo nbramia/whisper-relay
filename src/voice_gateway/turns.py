@@ -63,6 +63,7 @@ class TurnPipeline:
         client_transcript: str | None = None,
         backend: str = "lifeos",
         persona_id: str | None = None,
+        model_override: str | None = None,
         parse_handoff: bool = True,
     ) -> VoiceTurnResponse:
         response: VoiceTurnResponse | None = None
@@ -74,6 +75,7 @@ class TurnPipeline:
             client_transcript=client_transcript,
             backend=backend,
             persona_id=persona_id,
+            model_override=model_override,
             parse_handoff=parse_handoff,
         ):
             if event["type"] == "done":
@@ -95,6 +97,7 @@ class TurnPipeline:
         registry: TurnRegistry | None = None,
         backend: str = "lifeos",
         persona_id: str | None = None,
+        model_override: str | None = None,
         parse_handoff: bool = True,
     ) -> AsyncIterator[dict[str, Any]]:
         turn_id = str(uuid4())
@@ -181,6 +184,7 @@ class TurnPipeline:
                         on_status=on_status,
                         cancel=cancel,
                         persona_id=persona_id if backend == "lifeos" else None,
+                        model_override=model_override if backend == "lifeos" else None,
                         parse_handoff=parse_handoff if backend == "lifeos" else False,
                     )
                     timings.lifeos = int((time.monotonic() - t0) * 1000)

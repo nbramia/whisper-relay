@@ -21,9 +21,13 @@ voice-adapter exposes a LifeOS-compatible SSE subset (`POST /api/ask/stream`) an
 
 Both backends implement the same client protocol surface:
 
-- `ask(question, *, conversation_id, turn_id, on_status, cancel, persona_id?, parse_handoff?) -> LifeOSResult`
+- `ask(question, *, conversation_id, turn_id, on_status, cancel, persona_id?, model_override?, parse_handoff?) -> LifeOSResult`
 - `list_conversations(*, persona_id?)` / `get_conversation(id)` for the Chats sidebar
 - LifeOS only: `list_personas()` for persona discovery
+
+`model_override` is forwarded to LifeOS `/api/ask/stream` when set (omitted for `auto`/empty). Unknown values are passed through; LifeOS falls back server-side.
+
+**Explicit engine handoff:** when `model_override` is `claude_code` or `codex`, whisper-relay sets `parse_handoff=True` even if the persona lacks the `handoff` capability — the user explicitly chose an engine path. Inferred handoffs (orchestrator-emitted `claude_intent` without an engine pick) still follow persona `capabilities`.
 
 Implementation:
 
