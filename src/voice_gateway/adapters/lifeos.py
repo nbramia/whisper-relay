@@ -186,6 +186,10 @@ class HTTPLifeOSClient:
         override = normalize_model_override(model_override)
         if override:
             body["model_override"] = override
+        # Every turn this gateway handles is spoken (the reply is sent to TTS), so
+        # tell LifeOS to apply the selected persona's voice formatting rules
+        # (LifeOS#390 Phase 3). Unconditional: there is no text-only path into ask().
+        body["modality"] = "voice"
 
         handoff: HandoffResult | None = None
 

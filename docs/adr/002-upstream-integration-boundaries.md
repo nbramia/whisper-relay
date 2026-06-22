@@ -58,10 +58,10 @@ ffmpeg -y -i input -ar 16000 -ac 1 -f wav pipe:1
 POST {LIFEOS_BASE_URL}/api/ask/stream
 Content-Type: application/json
 
-{"question": "<polished transcript>", "conversation_id": "..."}
+{"question": "<polished transcript>", "conversation_id": "...", "modality": "voice"}
 ```
 
-Same endpoint and body shape as `api/services/telegram.py::chat_via_api` and the web chat UI.
+Same endpoint and body shape as `api/services/telegram.py::chat_via_api` and the web chat UI, plus `modality: "voice"` — every gateway turn is spoken, so LifeOS applies the selected persona's voice formatting rules (LifeOS#390 Phase 3 / [issue #27](https://github.com/nbramia/whisper-relay/issues/27)).
 
 #### Consuming SSE
 
