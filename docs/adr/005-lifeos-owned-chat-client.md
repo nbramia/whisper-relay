@@ -30,7 +30,7 @@ LifeOS **reverse-proxies** voice API paths to whisper-relay so the browser stays
 
 ```
 Phone browser → Tailscale HTTPS → LifeOS /chat
-                                    ├─ Text:      POST /api/ask/stream (+ persona_id, model_override)
+                                    ├─ Text:      POST /api/ask/stream (+ persona_id, model_override, modality=voice)
                                     ├─ Agent-text: LifeOS server → voice-adapter (token server-side)
                                     └─ Voice:      POST /api/voice/turn/stream (proxied)
                                                        ↓
