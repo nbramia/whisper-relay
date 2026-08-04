@@ -157,7 +157,8 @@ async def test_claude_code_override_enables_handoff_on_no_handoff_persona(client
 
 @pytest.mark.asyncio
 async def test_explicit_claude_code_triggers_handoff_http(
-    lifeos_sse_fixture, lifeos_handoff_fixture,
+    lifeos_sse_fixture,
+    lifeos_handoff_fixture,
 ):
     sse = lifeos_sse_fixture.replace(
         'data: {"type": "done"}',
