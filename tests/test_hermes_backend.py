@@ -9,7 +9,12 @@ from httpx import ASGITransport, AsyncClient
 
 from conftest import StubLifeOSClient
 from voice_gateway.adapters.hermes_backend import HTTPHermesBackendClient
-from voice_gateway.adapters.lifeos import LifeOSCancelled, LifeOSError, LifeOSResult
+from voice_gateway.adapters.lifeos import (
+    HTTPLifeOSClient,
+    LifeOSCancelled,
+    LifeOSError,
+    LifeOSResult,
+)
 from voice_gateway.adapters.stt import StubSTTAdapter
 from voice_gateway.adapters.text_backend import TextBackendRouter
 from voice_gateway.adapters.tts import NullTTSAdapter
@@ -350,3 +355,98 @@ async def test_cancel_hermes_turn_during_stream(tmp_settings):
                 break
 
     assert any(e["type"] == "cancelled" for e in events)
+
+
+@pytest.mark.asyncio
+async def test_hermes_request_body_matches_lifeos(lifeos_sse_fixture):
+    """Hermes gets the same per-turn context LifeOS does (issue #32).
+
+    Doubles as the LifeOS regression: the expected body is spelled out, so a change
+    to what LifeOS receives fails here rather than passing silently.
+    """
+    expected = {
+        "question": "what is on my calendar",
+        "conversation_id": "c1",
+        "persona_id": "fitness",
+        "model_override": "opus",
+        "modality": "voice",
+    }
+
+    lifeos_http = _mock_http(lifeos_sse_fixture)
+    with patch("voice_gateway.adapters.lifeos.httpx.AsyncClient", return_value=lifeos_http):
+        await HTTPLifeOSClient("http://lifeos.test").ask(
+            "what is on my calendar",
+            conversation_id="c1",
+            turn_id="t1",
+            persona_id="fitness",
+            model_override="opus",
+            parse_handoff=False,
+        )
+
+    hermes_http = _mock_http(lifeos_sse_fixture)
+    with patch("voice_gateway.adapters.hermes_backend.httpx.AsyncClient", return_value=hermes_http):
+        await HTTPHermesBackendClient("http://hermes.test").ask(
+            "what is on my calendar",
+            conversation_id="c1",
+            turn_id="t1",
+            persona_id="fitness",
+            model_override="opus",
+        )
+
+    assert lifeos_http.stream.call_args.kwargs["json"] == expected
+    assert hermes_http.stream.call_args.kwargs["json"] == expected
+
+
+@pytest.mark.asyncio
+async def test_hermes_turn_forwards_persona_and_model(tmp_path):
+    settings = Settings(data_dir=tmp_path, tts_backend="null")
+    hermes = HermesStubClient()
+    pipeline = TurnPipeline(
+        settings,
+        TurnStorage(settings.turns_dir),
+        StubSTTAdapter("hello"),
+        TextBackendRouter(StubLifeOSClient(), None, hermes),
+        NullTTSAdapter(),
+    )
+    app = create_app(settings, pipeline=pipeline)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/voice/turn",
+            data={
+                "backend": "hermes",
+                "transcript": "hello",
+                "persona_id": "fitness",
+                "model_override": "opus",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert hermes.last_persona_id == "fitness"
+    assert hermes.last_model_override == "opus"
+    assert hermes.last_parse_handoff is False
+
+
+@pytest.mark.asyncio
+async def test_hermes_turn_defaults_persona_to_primary(tmp_path):
+    settings = Settings(data_dir=tmp_path, tts_backend="null")
+    hermes = HermesStubClient()
+    pipeline = TurnPipeline(
+        settings,
+        TurnStorage(settings.turns_dir),
+        StubSTTAdapter("hello"),
+        TextBackendRouter(StubLifeOSClient(), None, hermes),
+        NullTTSAdapter(),
+    )
+    app = create_app(settings, pipeline=pipeline)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/voice/turn",
+            data={"backend": "hermes", "transcript": "hello"},
+        )
+
+    assert resp.status_code == 200
+    assert hermes.last_persona_id == "primary"

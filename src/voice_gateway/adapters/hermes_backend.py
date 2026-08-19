@@ -11,6 +11,7 @@ from voice_gateway.adapters.lifeos import (
     LifeOSResult,
     StatusCallback,
     consume_ask_sse_stream,
+    normalize_model_override,
 )
 
 
@@ -48,6 +49,18 @@ class HTTPHermesBackendClient:
         body: dict[str, Any] = {"question": question}
         if conversation_id:
             body["conversation_id"] = conversation_id
+        # Hermes answers by default in the LifeOS client, so a spoken turn carries
+        # the same context LifeOS gets: persona, spoken modality, and model pick.
+        # The gateway forwards these, never interprets them (ADR-001).
+        if persona_id:
+            body["persona_id"] = persona_id
+        override = normalize_model_override(model_override)
+        if override:
+            body["model_override"] = override
+        # Every turn this gateway handles is spoken (the reply goes to TTS), so the
+        # persona's voice formatting rules must apply. Unconditional: there is no
+        # text-only path into ask().
+        body["modality"] = "voice"
 
         async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:  # noqa: SIM117
             async with client.stream(

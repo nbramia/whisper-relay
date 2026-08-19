@@ -4,7 +4,7 @@
 > **Status:** Complete
 > **Last Updated:** 2026-06-18
 
-whisper-relay is a **voice transport API** for **LifeOS** and optional **OpenClaw Agent** mode. LifeOS responsive `/chat` is the client surface ([ADR-005](docs/adr/005-lifeos-owned-chat-client.md)); this repo exposes the voice turn API behind LifeOS's reverse proxy.
+whisper-relay is a **voice transport API** for **LifeOS**, **Hermes**, and optional **OpenClaw Agent** mode. LifeOS responsive `/chat` is the client surface ([ADR-005](docs/adr/005-lifeos-owned-chat-client.md)); this repo exposes the voice turn API behind LifeOS's reverse proxy.
 
 **What it is:** voice transport behind LifeOS — like `api/routes/voice.py` proxied to localhost.
 
@@ -19,6 +19,7 @@ Details live in ADRs — do not duplicate here.
 - **Transport layer** → [ADR-001](docs/adr/001-voice-transport-layer.md)
 - **linux-whisper + LifeOS integration** → [ADR-002](docs/adr/002-upstream-integration-boundaries.md)
 - **TTS** → [ADR-003](docs/adr/003-kokoro-tts-bm-george.md)
+- **Third backend (Hermes) + context capabilities** → [ADR-006](docs/adr/006-hermes-third-text-backend.md)
 - **Invariants & boundaries** → sections below
 
 ## Documentation
@@ -31,6 +32,7 @@ Rules in [docs/AGENTS.md](docs/AGENTS.md) are mandatory. Navigation:
 | Why transport layer, not agent? | [ADR-001](docs/adr/001-voice-transport-layer.md) |
 | How do we call linux-whisper and LifeOS? | [ADR-002](docs/adr/002-upstream-integration-boundaries.md) |
 | LifeOS vs Agent backend toggle | [ADR-004](docs/adr/004-dual-text-backends.md) |
+| Hermes backend + per-backend context capabilities | [ADR-006](docs/adr/006-hermes-third-text-backend.md) |
 | LifeOS-owned client + reverse proxy | [ADR-005](docs/adr/005-lifeos-owned-chat-client.md) (Accepted) |
 | Development principles (source) | [docs/development-principles.md](docs/development-principles.md) |
 | Python code conventions | [docs/specs/standards/code-conventions.md](docs/specs/standards/code-conventions.md) |
@@ -76,11 +78,13 @@ These are structural — violations are bugs, not style nits:
 | Component | Status |
 |-----------|--------|
 | FastAPI service | Implemented |
-| Adapters (STT / LifeOS / Agent / TTS) | Implemented |
+| Adapters (STT / LifeOS / Agent / Hermes / TTS) | Implemented |
 | Voice turn API | Implemented |
 | Client UI | **LifeOS `/chat`** (whisper-relay `static/` removed — #21) |
 
 **Stack (planned):** Python 3.12+, FastAPI, uvicorn, httpx, pydantic-settings, ffmpeg (system), linux-whisper (editable dep), LifeOS (HTTP only).
+
+**Backends:** `backend=lifeos|agent|hermes` per request (default `lifeos`). Persona, `modality=voice`, and `model_override` are forwarded to LifeOS and Hermes; the agent backend stays context-poor by design ([ADR-006](docs/adr/006-hermes-third-text-backend.md)).
 
 **Default port:** `9788` (override with `VOICE_GATEWAY_PORT` in `.env`). LifeOS reads `VOICE_GATEWAY_URL=http://127.0.0.1:9788` for reverse proxy — see [ADR-005](docs/adr/005-lifeos-owned-chat-client.md).
 
@@ -89,6 +93,7 @@ These are structural — violations are bugs, not style nits:
 - `linux-whisper` — STT + polish (editable install from sibling directory)
 - `LifeOS` — orchestrator (`http://127.0.0.1:8000`)
 - `agents` — OpenClaw voice-adapter for Agent mode (`http://127.0.0.1:8100`, see ADR-004)
+- `hermes` — Hermes assistant for Hermes mode (`http://127.0.0.1:8200`, see ADR-006)
 
 **Common commands (once implemented):**
 
@@ -109,4 +114,5 @@ uvicorn voice_gateway.main:app --host 127.0.0.1 --port 9788
 - [docs/adr/001-voice-transport-layer.md](docs/adr/001-voice-transport-layer.md)
 - [docs/adr/002-upstream-integration-boundaries.md](docs/adr/002-upstream-integration-boundaries.md)
 - [docs/adr/003-kokoro-tts-bm-george.md](docs/adr/003-kokoro-tts-bm-george.md)
+- [docs/adr/006-hermes-third-text-backend.md](docs/adr/006-hermes-third-text-backend.md)
 - [docs/development-principles.md](docs/development-principles.md)

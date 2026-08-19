@@ -1,13 +1,16 @@
-"""Tests for sending modality=voice on voice turns (issue #27).
+"""Tests for sending modality=voice on voice turns (issues #27, #32).
 
-Every turn through this gateway is spoken, so the LifeOS adapter always tells
-LifeOS to apply the selected persona's voice formatting rules (LifeOS#390 Phase 3).
+Every turn through this gateway is spoken, so the LifeOS and Hermes adapters always
+tell the backend to apply the selected persona's voice formatting rules
+(LifeOS#390 Phase 3). The agent backend stays context-poor by design (ADR-004).
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from voice_gateway.adapters.agent_backend import HTTPAgentBackendClient
+from voice_gateway.adapters.hermes_backend import HTTPHermesBackendClient
 from voice_gateway.adapters.lifeos import HTTPLifeOSClient
 
 
@@ -63,3 +66,38 @@ async def test_modality_sent_regardless_of_model_or_persona(lifeos_sse_fixture):
     body = mock_http.stream.call_args.kwargs["json"]
     assert body["modality"] == "voice"
     assert body["model_override"] == "opus"
+
+
+@pytest.mark.asyncio
+async def test_hermes_client_sends_modality_voice(lifeos_sse_fixture):
+    # Hermes answers by default in the LifeOS client, so spoken turns must carry
+    # modality too (issue #32) — otherwise replies are read aloud as screen prose.
+    client = HTTPHermesBackendClient("http://hermes.test")
+    mock_http = _mock_http(lifeos_sse_fixture)
+    with patch("voice_gateway.adapters.hermes_backend.httpx.AsyncClient", return_value=mock_http):
+        await client.ask(
+            "say something",
+            conversation_id=None,
+            turn_id="t1",
+            persona_id="fitness",
+            model_override="auto",
+        )
+    body = mock_http.stream.call_args.kwargs["json"]
+    assert body["modality"] == "voice"
+
+
+@pytest.mark.asyncio
+async def test_agent_client_sends_no_modality(lifeos_sse_fixture):
+    # The agent backend stays deliberately context-poor (ADR-004).
+    client = HTTPAgentBackendClient("http://agent.test")
+    mock_http = _mock_http(lifeos_sse_fixture)
+    with patch("voice_gateway.adapters.agent_backend.httpx.AsyncClient", return_value=mock_http):
+        await client.ask(
+            "say something",
+            conversation_id=None,
+            turn_id="t1",
+            persona_id="fitness",
+            model_override="opus",
+        )
+    body = mock_http.stream.call_args.kwargs["json"]
+    assert body == {"question": "say something"}

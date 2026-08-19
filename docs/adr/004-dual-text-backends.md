@@ -61,6 +61,7 @@ Disable Agent routing without removing code: `AGENT_BACKEND_ENABLED=false`.
 
 ## Related Documents
 
+- [006-hermes-third-text-backend.md](006-hermes-third-text-backend.md) — extends this decision with a third backend (Hermes) and per-backend context capabilities
 - [001-voice-transport-layer.md](001-voice-transport-layer.md) — transport-layer invariant
 - [002-upstream-integration-boundaries.md](002-upstream-integration-boundaries.md) — LifeOS HTTP client
 - [../AGENTS.md](../AGENTS.md) — project agent reference

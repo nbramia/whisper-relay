@@ -1,10 +1,12 @@
-"""Tests for LifeOS persona discovery and pass-through (issue #19)."""
+"""Tests for persona discovery and pass-through (issues #19, #32)."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from voice_gateway.adapters.hermes_backend import HTTPHermesBackendClient
 from voice_gateway.adapters.lifeos import HTTPLifeOSClient, LifeOSResult, persona_supports_handoff
+from voice_gateway.routes.voice import _resolve_persona_id
 
 
 def test_persona_supports_handoff_primary_and_specialized():
@@ -194,3 +196,61 @@ async def test_turn_stream_handoff_for_primary_persona(client, pipeline):
     assert resp.status_code == 200
     assert lifeos.last_persona_id == "primary"
     assert lifeos.last_parse_handoff is True
+
+
+@pytest.mark.asyncio
+async def test_hermes_client_sends_persona_id(lifeos_sse_fixture):
+    # Hermes gets the persona so a spoken reply follows the persona's speech rules
+    # (issue #32). The gateway forwards the id; it never resolves the persona.
+    client = HTTPHermesBackendClient("http://hermes.test")
+
+    async def fake_aiter_lines():
+        for line in lifeos_sse_fixture.splitlines():
+            yield line
+
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 200
+    mock_resp.aiter_lines = fake_aiter_lines
+    mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = AsyncMock(return_value=None)
+
+    mock_http = AsyncMock()
+    mock_http.stream = MagicMock(return_value=mock_resp)
+    mock_http.post = AsyncMock()
+    mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+    mock_http.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("voice_gateway.adapters.hermes_backend.httpx.AsyncClient", return_value=mock_http):
+        await client.ask(
+            "log squats",
+            conversation_id=None,
+            turn_id="t1",
+            persona_id="fitness",
+        )
+
+    body = mock_http.stream.call_args.kwargs["json"]
+    assert body["persona_id"] == "fitness"
+    # Handoff is off for hermes even when the SSE stream carries claude_intent.
+    mock_http.post.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("backend", "expected"),
+    [
+        ("lifeos", "primary"),
+        ("hermes", "primary"),
+        ("agent", None),
+    ],
+)
+def test_resolve_persona_id_defaults_per_backend(backend, expected):
+    assert _resolve_persona_id(backend, None) == expected
+    assert _resolve_persona_id(backend, "  ") == expected
+
+
+@pytest.mark.parametrize("backend", ["lifeos", "hermes"])
+def test_resolve_persona_id_passes_explicit_value(backend):
+    assert _resolve_persona_id(backend, " Fitness ") == "Fitness"
+
+
+def test_resolve_persona_id_drops_value_for_agent():
+    assert _resolve_persona_id("agent", "fitness") is None

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from voice_gateway.adapters.lifeos import LifeOSClient, LifeOSError
 
 BACKEND_LIFEOS = "lifeos"
@@ -17,6 +19,33 @@ def normalize_backend(value: str | None) -> str:
     if kind in _KNOWN_BACKENDS:
         return kind
     return BACKEND_LIFEOS
+
+
+@dataclass(frozen=True)
+class BackendCapabilities:
+    """What per-turn context a backend accepts. The gateway forwards, never resolves."""
+
+    persona: bool
+    model_override: bool
+    handoff: bool
+
+
+_CAPABILITIES = {
+    # LifeOS orchestrator: full context, including claude_intent handoffs.
+    BACKEND_LIFEOS: BackendCapabilities(persona=True, model_override=True, handoff=True),
+    # voice-adapter owns its own session, escalation, and formatting: deliberately
+    # context-poor (ADR-004). Do not widen without an ADR.
+    BACKEND_AGENT: BackendCapabilities(persona=False, model_override=False, handoff=False),
+    # Hermes answers by default in the LifeOS client, so a spoken turn needs the
+    # persona's speech-formatting rules. Handoff stays off: engine handoff is a
+    # LifeOS-orchestrator concept and Hermes has its own delegation posture.
+    BACKEND_HERMES: BackendCapabilities(persona=True, model_override=True, handoff=False),
+}
+
+
+def capabilities_for(backend: str | None) -> BackendCapabilities:
+    """Per-turn context the selected backend accepts."""
+    return _CAPABILITIES[normalize_backend(backend)]
 
 
 class TextBackendUnavailableError(LifeOSError):

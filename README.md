@@ -1,6 +1,6 @@
 # whisper-relay
 
-whisper-relay is a **voice transport API** for **LifeOS** and optional **OpenClaw Agent** mode. The **client UI** is LifeOS responsive `/chat` ([ADR-005](docs/adr/005-lifeos-owned-chat-client.md)); this service handles STT, text-backend routing, and TTS only.
+whisper-relay is a **voice transport API** for **LifeOS**, **Hermes**, and optional **OpenClaw Agent** mode. The **client UI** is LifeOS responsive `/chat` ([ADR-005](docs/adr/005-lifeos-owned-chat-client.md)); this service handles STT, text-backend routing, and TTS only.
 
 whisper-relay turns speech into text, submits that text to a **text backend** (LifeOS, the OpenClaw voice-adapter in [agents](https://github.com/nbramia/agents), or Hermes), then speaks the reply. It does not run an agent, duplicate orchestrator tools, or make routing decisions.
 
@@ -57,7 +57,7 @@ flowchart TB
 - Voice turn API for LifeOS `/chat` (proxied same-origin over Tailscale HTTPS)
 - Multi-turn conversations — separate `conversation_id` threads per backend (LifeOS, Agent, or Hermes)
 - **LifeOS | Agent | Hermes** backend selection from the LifeOS client ([ADR-004](docs/adr/004-dual-text-backends.md))
-- Per-turn `model_override` forwarded to LifeOS `/api/ask/stream` ([issue #24](https://github.com/nbramia/whisper-relay/issues/24))
+- Per-turn `persona_id`, `modality=voice`, and `model_override` forwarded to LifeOS and Hermes ([ADR-006](docs/adr/006-hermes-third-text-backend.md)); the agent backend stays context-poor by design
 - Spoken status updates during long tool rounds
 - Engine handoffs in LifeOS mode (`claude_intent` → `/api/chat/handoff`)
 - Headless autostart via systemd (API on `127.0.0.1:9788`)
@@ -175,6 +175,7 @@ sudo systemctl enable --now whisper-relay
 | [ADR-002](docs/adr/002-upstream-integration-boundaries.md) | linux-whisper + LifeOS integration boundaries |
 | [ADR-003](docs/adr/003-kokoro-tts-bm-george.md) | Kokoro TTS — `bm_george` voice |
 | [ADR-004](docs/adr/004-dual-text-backends.md) | LifeOS vs Agent backend toggle |
+| [ADR-006](docs/adr/006-hermes-third-text-backend.md) | Hermes backend + per-backend context capabilities |
 | [ADR-005](docs/adr/005-lifeos-owned-chat-client.md) | LifeOS-owned `/chat` client; API-only gateway (Accepted) |
 
 ## License

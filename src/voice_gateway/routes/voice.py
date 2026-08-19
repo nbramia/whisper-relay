@@ -14,7 +14,7 @@ from voice_gateway.adapters.lifeos import (
     normalize_model_override,
     persona_supports_handoff,
 )
-from voice_gateway.adapters.text_backend import BACKEND_LIFEOS, normalize_backend
+from voice_gateway.adapters.text_backend import capabilities_for, normalize_backend
 from voice_gateway.cancel import TurnRegistry
 from voice_gateway.models import VoiceTurnResponse
 from voice_gateway.turns import TurnError, TurnPipeline
@@ -30,13 +30,20 @@ def _personas_cache(request: Request) -> list[dict]:
     return [{"id": "primary", "label": "LifeOS", "capabilities": ["handoff", "agent"]}]
 
 
+def _resolve_persona_id(backend: str, persona_id: str | None) -> str | None:
+    """Persona for backends that accept one; None for the context-poor ones."""
+    if not capabilities_for(backend).persona:
+        return None
+    return (persona_id or "primary").strip() or "primary"
+
+
 def _parse_handoff_enabled(
     request: Request,
     backend: str,
     persona_id: str | None,
     model_override: str | None = None,
 ) -> bool:
-    if normalize_backend(backend) != BACKEND_LIFEOS:
+    if not capabilities_for(backend).handoff:
         return False
     if handoff_override_for_model(model_override):
         return True
@@ -92,7 +99,7 @@ async def voice_turn(
         request, audio, transcript, conversation_id
     )
     backend_kind = normalize_backend(backend)
-    pid = (persona_id or "primary").strip() or "primary" if backend_kind == BACKEND_LIFEOS else None
+    pid = _resolve_persona_id(backend_kind, persona_id)
     model = normalize_model_override(model_override)
 
     try:
@@ -126,7 +133,7 @@ async def voice_turn_stream(
         request, audio, transcript, conversation_id
     )
     backend_kind = normalize_backend(backend)
-    pid = (persona_id or "primary").strip() or "primary" if backend_kind == BACKEND_LIFEOS else None
+    pid = _resolve_persona_id(backend_kind, persona_id)
     model = normalize_model_override(model_override)
     parse_handoff = _parse_handoff_enabled(request, backend_kind, pid, model)
 
