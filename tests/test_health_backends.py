@@ -5,6 +5,7 @@ from httpx import ASGITransport, AsyncClient
 
 from conftest import StubLifeOSClient
 from voice_gateway.adapters.agent_backend import HTTPAgentBackendClient
+from voice_gateway.adapters.hermes_backend import HTTPHermesBackendClient
 from voice_gateway.adapters.text_backend import TextBackendRouter
 from voice_gateway.config import Settings
 from voice_gateway.main import create_app
@@ -14,7 +15,8 @@ from voice_gateway.main import create_app
 async def test_health_backends_reports_reachability(client):
     app = client._transport.app
     agent = HTTPAgentBackendClient("http://agent.test")
-    app.state.text_backend_router = TextBackendRouter(StubLifeOSClient(), agent)
+    hermes = HTTPHermesBackendClient("http://hermes.test")
+    app.state.text_backend_router = TextBackendRouter(StubLifeOSClient(), agent, hermes)
 
     mock_lifeos_resp = MagicMock()
     mock_lifeos_resp.status_code = 200
@@ -22,6 +24,7 @@ async def test_health_backends_reports_reachability(client):
     with (
         patch("voice_gateway.routes.health.httpx.AsyncClient") as lifeos_http_cls,
         patch.object(agent, "health_check", new=AsyncMock(return_value=True)),
+        patch.object(hermes, "health_check", new=AsyncMock(return_value=True)),
     ):
         lifeos_http = AsyncMock()
         lifeos_http.get = AsyncMock(return_value=mock_lifeos_resp)
@@ -36,6 +39,31 @@ async def test_health_backends_reports_reachability(client):
     assert data["lifeos"]["reachable"] is True
     assert data["agent"]["configured"] is True
     assert data["agent"]["reachable"] is True
+    assert data["hermes"]["configured"] is True
+    assert data["hermes"]["reachable"] is True
+
+
+@pytest.mark.asyncio
+async def test_health_backends_reports_unreachable_hermes(client):
+    app = client._transport.app
+    hermes = HTTPHermesBackendClient("http://hermes.test")
+    app.state.text_backend_router = TextBackendRouter(StubLifeOSClient(), None, hermes)
+
+    with (
+        patch("voice_gateway.routes.health.httpx.AsyncClient") as lifeos_http_cls,
+        patch.object(hermes, "health_check", new=AsyncMock(side_effect=OSError("refused"))),
+    ):
+        lifeos_http = AsyncMock()
+        lifeos_http.get = AsyncMock(side_effect=OSError("refused"))
+        lifeos_http.__aenter__ = AsyncMock(return_value=lifeos_http)
+        lifeos_http.__aexit__ = AsyncMock(return_value=None)
+        lifeos_http_cls.return_value = lifeos_http
+
+        resp = await client.get("/health/backends")
+
+    data = resp.json()
+    assert data["hermes"]["configured"] is True
+    assert data["hermes"]["reachable"] is False
 
 
 @pytest.mark.asyncio
@@ -76,3 +104,17 @@ async def test_health_backends_agent_not_configured(tmp_path):
     data = resp.json()
     assert data["agent"]["configured"] is False
     assert data["agent"]["reachable"] is None
+
+
+@pytest.mark.asyncio
+async def test_health_backends_hermes_not_configured(tmp_path):
+    settings = Settings(data_dir=tmp_path, tts_backend="null", hermes_backend_enabled=False)
+    app = create_app(settings)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/health/backends")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["hermes"]["configured"] is False
+    assert data["hermes"]["reachable"] is None
+    assert data["hermes"]["url"] is None

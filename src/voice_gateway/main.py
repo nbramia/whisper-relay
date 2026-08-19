@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from voice_gateway.adapters.agent_backend import HTTPAgentBackendClient
+from voice_gateway.adapters.hermes_backend import HTTPHermesBackendClient
 from voice_gateway.adapters.lifeos import HTTPLifeOSClient
 from voice_gateway.adapters.stt import LinuxWhisperSTTAdapter
 from voice_gateway.adapters.text_backend import TextBackendRouter
@@ -31,7 +32,14 @@ def build_text_backend_router(settings: Settings) -> TextBackendRouter:
             settings.agent_backend_timeout_s,
             api_token=settings.agent_backend_token,
         )
-    return TextBackendRouter(lifeos, agent)
+    hermes: HTTPHermesBackendClient | None = None
+    if settings.hermes_backend_enabled:
+        hermes = HTTPHermesBackendClient(
+            settings.hermes_backend_url,
+            settings.hermes_backend_timeout_s,
+            api_token=settings.hermes_backend_token,
+        )
+    return TextBackendRouter(lifeos, agent, hermes)
 
 
 @asynccontextmanager
@@ -46,15 +54,17 @@ async def lifespan(app: FastAPI):
         logger.exception("adapter warmup failed — first turn may be slower")
 
     router: TextBackendRouter = app.state.text_backend_router
-    if router.agent is not None and isinstance(router.agent, HTTPAgentBackendClient):
+    for name, client in (("agent", router.agent), ("hermes", router.hermes)):
+        if client is None or not hasattr(client, "health_check"):
+            continue
         try:
-            ok = await router.agent.health_check()
+            ok = await client.health_check()
             if ok:
-                logger.info("agent backend health check ok")
+                logger.info("%s backend health check ok", name)
             else:
-                logger.warning("agent backend health check returned not ok")
+                logger.warning("%s backend health check returned not ok", name)
         except Exception:
-            logger.warning("agent backend unreachable at startup — Agent mode may fail")
+            logger.warning("%s backend unreachable at startup — that mode may fail", name)
 
     try:
         app.state.lifeos_personas = await router.lifeos.list_personas()
