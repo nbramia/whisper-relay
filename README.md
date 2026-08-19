@@ -2,7 +2,7 @@
 
 whisper-relay is a **voice transport API** for **LifeOS** and optional **OpenClaw Agent** mode. The **client UI** is LifeOS responsive `/chat` ([ADR-005](docs/adr/005-lifeos-owned-chat-client.md)); this service handles STT, text-backend routing, and TTS only.
 
-whisper-relay turns speech into text, submits that text to a **text backend** (LifeOS or the OpenClaw voice-adapter in [agents](https://github.com/nbramia/agents)), then speaks the reply. It does not run an agent, duplicate orchestrator tools, or make routing decisions.
+whisper-relay turns speech into text, submits that text to a **text backend** (LifeOS, the OpenClaw voice-adapter in [agents](https://github.com/nbramia/agents), or Hermes), then speaks the reply. It does not run an agent, duplicate orchestrator tools, or make routing decisions.
 
 ## How it fits together
 
@@ -15,6 +15,7 @@ whisper-relay sits between LifeOS `/chat` and local services on your Linux works
 | **linux-whisper** | Local STT + polish (same pipeline as desktop dictation) |
 | **LifeOS** (LifeOS mode) | Orchestrator — tools, memory, planning, engine handoffs |
 | **voice-adapter** (Agent mode) | OpenClaw HTTP bridge in agents repo — session + escalation ([ADR-004](docs/adr/004-dual-text-backends.md)) |
+| **Hermes** (Hermes mode) | Third text backend, same SSE contract ([ADR-004](docs/adr/004-dual-text-backends.md)) |
 
 ```mermaid
 flowchart TB
@@ -38,6 +39,7 @@ flowchart TB
   lw["linux-whisper"]
   orch["LifeOS<br/>POST /api/ask/stream"]
   agent["voice-adapter<br/>:8100"]
+  hermes["Hermes<br/>:8200"]
 
   phone --> chat
   proxy -->|"voice turn"| norm
@@ -45,6 +47,7 @@ flowchart TB
   stt -.-> lw
   router -->|"backend=lifeos"| orch
   router -->|"backend=agent"| agent
+  router -->|"backend=hermes"| hermes
 ```
 
 **One turn:** record in LifeOS voice mode → LifeOS proxies to whisper-relay → STT/TTS + text backend → spoken reply in the same conversation thread.
@@ -52,8 +55,8 @@ flowchart TB
 ## What it does
 
 - Voice turn API for LifeOS `/chat` (proxied same-origin over Tailscale HTTPS)
-- Multi-turn conversations — separate `conversation_id` threads per backend (LifeOS or Agent)
-- **LifeOS | Agent** backend selection from the LifeOS client ([ADR-004](docs/adr/004-dual-text-backends.md))
+- Multi-turn conversations — separate `conversation_id` threads per backend (LifeOS, Agent, or Hermes)
+- **LifeOS | Agent | Hermes** backend selection from the LifeOS client ([ADR-004](docs/adr/004-dual-text-backends.md))
 - Per-turn `model_override` forwarded to LifeOS `/api/ask/stream` ([issue #24](https://github.com/nbramia/whisper-relay/issues/24))
 - Spoken status updates during long tool rounds
 - Engine handoffs in LifeOS mode (`claude_intent` → `/api/chat/handoff`)
@@ -121,6 +124,7 @@ With [voice-adapter](https://github.com/nbramia/agents) running (`curl -s localh
 - **linux-whisper** installed and configured (`~/.config/linux-whisper/config.yaml`)
 - **LifeOS** running locally (default `http://127.0.0.1:8000`) for LifeOS mode
 - **agents voice-adapter** (optional) for Agent mode — `docker compose --profile voice up` in [agents](https://github.com/nbramia/agents); set `AGENT_BACKEND_URL=http://127.0.0.1:8100` (see [ADR-004](docs/adr/004-dual-text-backends.md))
+- **Hermes** (optional) for Hermes mode — set `HERMES_BACKEND_URL` (default `http://127.0.0.1:8200`) and, if the service requires it, `HERMES_BACKEND_TOKEN` (see [ADR-004](docs/adr/004-dual-text-backends.md))
 - `ffmpeg` for audio normalization
 - Tailscale for phone → Linux access
 - Kokoro TTS — see [ADR-003](docs/adr/003-kokoro-tts-bm-george.md)
