@@ -1,9 +1,11 @@
-"""Tests for per-turn model_override on voice turns (issue #24)."""
+"""Tests for per-turn model_override on voice turns (issues #24, #32)."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 
+from voice_gateway.adapters.hermes_backend import HTTPHermesBackendClient
 from voice_gateway.adapters.lifeos import (
     HTTPLifeOSClient,
     LifeOSResult,
@@ -234,3 +236,98 @@ async def test_unknown_model_override_forwarded_to_lifeos(lifeos_sse_fixture):
 
     body = mock_http.stream.call_args.kwargs["json"]
     assert body["model_override"] == "bogus"
+
+
+@pytest.mark.asyncio
+async def test_hermes_client_sends_model_override(lifeos_sse_fixture):
+    client = HTTPHermesBackendClient("http://hermes.test")
+
+    async def fake_aiter_lines():
+        for line in lifeos_sse_fixture.splitlines():
+            yield line
+
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 200
+    mock_resp.aiter_lines = fake_aiter_lines
+    mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = AsyncMock(return_value=None)
+
+    mock_http = AsyncMock()
+    mock_http.stream = MagicMock(return_value=mock_resp)
+    mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+    mock_http.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("voice_gateway.adapters.hermes_backend.httpx.AsyncClient", return_value=mock_http):
+        await client.ask("pin sonnet", conversation_id=None, turn_id="t1", model_override="sonnet")
+
+    body = mock_http.stream.call_args.kwargs["json"]
+    assert body["model_override"] == "sonnet"
+
+
+@pytest.mark.asyncio
+async def test_hermes_client_omits_model_override_for_auto(lifeos_sse_fixture):
+    client = HTTPHermesBackendClient("http://hermes.test")
+
+    async def fake_aiter_lines():
+        for line in lifeos_sse_fixture.splitlines():
+            yield line
+
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 200
+    mock_resp.aiter_lines = fake_aiter_lines
+    mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = AsyncMock(return_value=None)
+
+    mock_http = AsyncMock()
+    mock_http.stream = MagicMock(return_value=mock_resp)
+    mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+    mock_http.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("voice_gateway.adapters.hermes_backend.httpx.AsyncClient", return_value=mock_http):
+        await client.ask("default path", conversation_id=None, turn_id="t1", model_override="auto")
+
+    body = mock_http.stream.call_args.kwargs["json"]
+    assert "model_override" not in body
+
+
+@pytest.mark.asyncio
+async def test_claude_code_override_does_not_enable_handoff_on_hermes(tmp_path):
+    # An explicit engine pick turns handoff on for LifeOS turns; hermes never
+    # parses claude_intent, whatever the persona or model (issue #32).
+    from conftest import StubLifeOSClient
+    from voice_gateway.adapters.stt import StubSTTAdapter
+    from voice_gateway.adapters.text_backend import TextBackendRouter
+    from voice_gateway.adapters.tts import NullTTSAdapter
+    from voice_gateway.config import Settings
+    from voice_gateway.main import create_app
+    from voice_gateway.storage import TurnStorage
+    from voice_gateway.turns import TurnPipeline
+
+    settings = Settings(data_dir=tmp_path, tts_backend="null")
+    hermes = StubLifeOSClient()
+    pipeline = TurnPipeline(
+        settings,
+        TurnStorage(settings.turns_dir),
+        StubSTTAdapter("refactor auth"),
+        TextBackendRouter(StubLifeOSClient(), None, hermes),
+        NullTTSAdapter(),
+    )
+    app = create_app(settings, pipeline=pipeline)
+    app.state.lifeos_personas = await hermes.list_personas()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        resp = await http.post(
+            "/api/voice/turn",
+            data={
+                "backend": "hermes",
+                "transcript": "refactor auth",
+                "persona_id": "primary",
+                "model_override": "claude_code",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert hermes.last_persona_id == "primary"
+    assert hermes.last_model_override == "claude_code"
+    assert hermes.last_parse_handoff is False

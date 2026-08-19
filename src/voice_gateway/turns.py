@@ -11,7 +11,11 @@ from uuid import uuid4
 
 from voice_gateway.adapters.lifeos import LifeOSCancelled, LifeOSError
 from voice_gateway.adapters.stt import STTAdapter
-from voice_gateway.adapters.text_backend import TextBackendRouter, TextBackendUnavailableError
+from voice_gateway.adapters.text_backend import (
+    TextBackendRouter,
+    TextBackendUnavailableError,
+    capabilities_for,
+)
 from voice_gateway.adapters.tts import TTSAdapter
 from voice_gateway.audio import AudioNormalizationError, normalize_audio
 from voice_gateway.cancel import TurnRegistry
@@ -109,6 +113,10 @@ class TurnPipeline:
             yield {"type": "error", "message": str(exc), "status_code": 503}
             return
 
+        # Which per-turn context this backend accepts (ADR-004). Resolved once so
+        # the request body is a function of the backend, not of scattered checks.
+        caps = capabilities_for(backend)
+
         def check_cancelled() -> None:
             if cancel and cancel.is_set():
                 raise TurnCancelled()
@@ -183,9 +191,9 @@ class TurnPipeline:
                         turn_id=turn_id,
                         on_status=on_status,
                         cancel=cancel,
-                        persona_id=persona_id if backend == "lifeos" else None,
-                        model_override=model_override if backend == "lifeos" else None,
-                        parse_handoff=parse_handoff if backend == "lifeos" else False,
+                        persona_id=persona_id if caps.persona else None,
+                        model_override=model_override if caps.model_override else None,
+                        parse_handoff=parse_handoff if caps.handoff else False,
                     )
                     timings.lifeos = int((time.monotonic() - t0) * 1000)
                     await event_queue.put({"type": "_backend_done", "result": result})
