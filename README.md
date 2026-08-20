@@ -39,7 +39,7 @@ flowchart TB
   lw["linux-whisper"]
   orch["LifeOS<br/>POST /api/ask/stream"]
   agent["voice-adapter<br/>:8100"]
-  hermes["Hermes<br/>:8200"]
+  hermes["Hermes<br/>:8790"]
 
   phone --> chat
   proxy -->|"voice turn"| norm
@@ -118,13 +118,30 @@ With [voice-adapter](https://github.com/nbramia/agents) running (`curl -s localh
 2. Open LifeOS `/chat` over Tailscale HTTPS, select **Agent**, use voice mode
 3. Optional: `curl -s localhost:9788/health/backends`
 
+### Hermes mode smoke test
+
+Check **reachability, not configuration** — `configured: true` only means a URL is set,
+and a URL pointing at a port nothing serves reports exactly that ([#35](https://github.com/nbramia/whisper-relay/issues/35)).
+
+1. Set `HERMES_BACKEND_URL` to the adapter's listen address (its own default is `http://127.0.0.1:8790`) and `HERMES_BACKEND_TOKEN` to the adapter's `LIFEOS_ADAPTER_AUTH_TOKEN`
+2. Restart whisper-relay, then confirm the backend answers:
+
+   ```bash
+   curl -s localhost:9788/health/backends | python3 -m json.tool
+   # hermes → {"configured": true, "reachable": true, "url": "http://127.0.0.1:8790"}
+   ```
+
+   `reachable: false` with `configured: true` means the URL is wrong or the adapter is
+   down — fix that before driving a turn; a spoken turn against it goes nowhere.
+3. Drive one real turn: open LifeOS `/chat` over Tailscale HTTPS, select **Hermes**, use voice mode
+
 ## Prerequisites
 
 - Linux workstation on your tailnet (GPU recommended for linux-whisper)
 - **linux-whisper** installed and configured (`~/.config/linux-whisper/config.yaml`)
 - **LifeOS** running locally (default `http://127.0.0.1:8000`) for LifeOS mode
 - **agents voice-adapter** (optional) for Agent mode — `docker compose --profile voice up` in [agents](https://github.com/nbramia/agents); set `AGENT_BACKEND_URL=http://127.0.0.1:8100` (see [ADR-004](docs/adr/004-dual-text-backends.md))
-- **Hermes** (optional) for Hermes mode — set `HERMES_BACKEND_URL` (default `http://127.0.0.1:8200`) and, if the service requires it, `HERMES_BACKEND_TOKEN` (see [ADR-004](docs/adr/004-dual-text-backends.md))
+- **Hermes** (optional) for Hermes mode — `HERMES_BACKEND_URL` defaults to `http://127.0.0.1:8790`, which is the Hermes LifeOS-adapter's own default (`LIFEOS_ADAPTER_PORT`), not a number chosen here; set `HERMES_BACKEND_TOKEN` to the adapter's `LIFEOS_ADAPTER_AUTH_TOKEN` (see [ADR-006](docs/adr/006-hermes-third-text-backend.md))
 - `ffmpeg` for audio normalization
 - Tailscale for phone → Linux access
 - Kokoro TTS — see [ADR-003](docs/adr/003-kokoro-tts-bm-george.md)

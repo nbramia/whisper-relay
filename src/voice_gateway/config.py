@@ -26,7 +26,11 @@ class Settings(BaseSettings):
     agent_backend_token: str | None = Field(default=None, alias="AGENT_BACKEND_TOKEN")
     agent_backend_enabled: bool = Field(default=True, alias="AGENT_BACKEND_ENABLED")
 
-    hermes_backend_url: str = Field(default="http://127.0.0.1:8200", alias="HERMES_BACKEND_URL")
+    # 8790 is not this repo's choice: it is the Hermes LifeOS-adapter's own default
+    # (`LIFEOS_ADAPTER_PORT` in hermes `lifeos_adapter/config.py`, documented in that
+    # repo's docs/adapter-operations.md). Two repos independently picking a number is
+    # what broke this before (#35) — follow the service, don't restate a guess.
+    hermes_backend_url: str = Field(default="http://127.0.0.1:8790", alias="HERMES_BACKEND_URL")
     hermes_backend_timeout_s: float = Field(default=300.0, alias="HERMES_BACKEND_TIMEOUT_S")
     hermes_backend_token: str | None = Field(default=None, alias="HERMES_BACKEND_TOKEN")
     hermes_backend_enabled: bool = Field(default=True, alias="HERMES_BACKEND_ENABLED")
