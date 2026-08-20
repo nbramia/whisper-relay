@@ -40,4 +40,4 @@ Phase 1 requires **no code changes** in **linux-whisper** or **LifeOS** for the 
 - **linux-whisper** — STT + polish (library import)
 - **LifeOS** — orchestrator (HTTP client, default backend)
 - **agents** — OpenClaw voice-adapter for Agent mode (`AGENT_BACKEND_URL`, default `:8100`)
-- **hermes** — Hermes assistant for Hermes mode (`HERMES_BACKEND_URL`, default `:8200`)
+- **hermes** — Hermes assistant for Hermes mode (`HERMES_BACKEND_URL`, default `:8790` — the adapter's own `LIFEOS_ADAPTER_PORT` default, not chosen here)

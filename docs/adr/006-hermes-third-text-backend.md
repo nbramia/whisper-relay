@@ -1,7 +1,7 @@
 # ADR-006: Hermes as a third text backend with context parity
 
 **Status:** Complete
-**Last Updated:** 2026-08-19
+**Last Updated:** 2026-08-19 (errata 2026-08-19, see below)
 **Decision:** Accepted (whisper-relay #32)
 
 ## Context
@@ -44,7 +44,9 @@ Per-turn context is a function of the backend, resolved once via `capabilities_f
 
 ### Settings
 
-`HERMES_BACKEND_URL` (default `http://127.0.0.1:8200`), `HERMES_BACKEND_TIMEOUT_S` (300s, matching the other backends), `HERMES_BACKEND_TOKEN` (optional bearer), `HERMES_BACKEND_ENABLED` (default true) — mirroring the `AGENT_BACKEND_*` quartet.
+`HERMES_BACKEND_URL`, `HERMES_BACKEND_TIMEOUT_S` (300s, matching the other backends), `HERMES_BACKEND_TOKEN` (optional bearer), `HERMES_BACKEND_ENABLED` (default true) — mirroring the `AGENT_BACKEND_*` quartet.
+
+**The URL default follows the service, not this repo.** It is the Hermes LifeOS-adapter's own listen port (`LIFEOS_ADAPTER_PORT` in hermes `lifeos_adapter/config.py`, documented in that repo's `docs/adapter-operations.md`). This repository cites that value rather than choosing one: two repositories independently picking a port is exactly what left this backend configured-but-unreachable ([#35](https://github.com/nbramia/whisper-relay/issues/35)).
 
 `HTTPHermesBackendClient` reuses `consume_ask_sse_stream` from `adapters/lifeos.py` rather than reimplementing the parser, so the transcription, synthesis, playback, and cancellation stages are untouched. Cancellation still works by closing the response stream.
 
@@ -63,6 +65,14 @@ Per-turn context is a function of the backend, resolved once via `capabilities_f
 - The Hermes-side service terminating this contract lives in `nbramia/hermes`; it must speak the same SSE event set (`conversation_id`, `status`, `content`, `error`, `done`).
 - A fourth backend follows the same shape: a client, a router entry, and a capabilities row.
 
+## Errata
+
+Accepted ADRs are append-only, so corrections are recorded here rather than rewritten above.
+
+| Date | Correction |
+|------|------------|
+| 2026-08-19 | The settings section originally restated the `HERMES_BACKEND_URL` default as `http://127.0.0.1:8200`. Nothing has ever listened there: the adapter binds `8790` by default. The section now cites the adapter's own default instead of restating a number ([#35](https://github.com/nbramia/whisper-relay/issues/35)). The decision — a third backend with persona/modality/model parity and handoff off — is unchanged. |
+
 ## Related Documents
 
 - [001-voice-transport-layer.md](001-voice-transport-layer.md) — transport-only invariant
@@ -70,5 +80,6 @@ Per-turn context is a function of the backend, resolved once via `capabilities_f
 - [004-dual-text-backends.md](004-dual-text-backends.md) — the two-backend decision this extends
 - [005-lifeos-owned-chat-client.md](005-lifeos-owned-chat-client.md) — LifeOS owns the client surface
 - [nbramia/whisper-relay#32](https://github.com/nbramia/whisper-relay/issues/32) — this change
+- [nbramia/whisper-relay#35](https://github.com/nbramia/whisper-relay/issues/35) — default port corrected to the adapter's own
 - [nbramia/whisper-relay#27](https://github.com/nbramia/whisper-relay/issues/27) — modality passthrough
 - [nbramia/whisper-relay#24](https://github.com/nbramia/whisper-relay/issues/24) — model_override passthrough

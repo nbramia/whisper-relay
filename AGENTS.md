@@ -93,7 +93,7 @@ These are structural — violations are bugs, not style nits:
 - `linux-whisper` — STT + polish (editable install from sibling directory)
 - `LifeOS` — orchestrator (`http://127.0.0.1:8000`)
 - `agents` — OpenClaw voice-adapter for Agent mode (`http://127.0.0.1:8100`, see ADR-004)
-- `hermes` — Hermes assistant for Hermes mode (`http://127.0.0.1:8200`, see ADR-006)
+- `hermes` — Hermes assistant for Hermes mode (`http://127.0.0.1:8790` — the adapter's own default port, see ADR-006)
 
 **Common commands (once implemented):**
 
