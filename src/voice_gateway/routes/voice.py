@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from uuid import UUID
 
@@ -14,10 +15,16 @@ from voice_gateway.adapters.lifeos import (
     normalize_model_override,
     persona_supports_handoff,
 )
-from voice_gateway.adapters.text_backend import capabilities_for, normalize_backend
+from voice_gateway.adapters.text_backend import (
+    TextBackendUnavailableError,
+    capabilities_for,
+    normalize_backend,
+)
 from voice_gateway.cancel import TurnRegistry
 from voice_gateway.models import VoiceTurnResponse
 from voice_gateway.turns import TurnError, TurnPipeline
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/voice", tags=["voice"])
 
@@ -158,11 +165,47 @@ async def voice_turn_stream(
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
+async def _cancel_upstream(request: Request, backend: str | None, turn_id: str) -> None:
+    """Tell the backend to stop, for backends that accept an explicit cancel.
+
+    Best effort by design: the local cancel has already succeeded by the time this
+    runs, so nothing here may turn a clean cancel into an error. Fired from the
+    route rather than the SSE read loop, which only notices the cancel flag between
+    lines — a quiet stream would otherwise delay the call (issue #37).
+    """
+    if backend is None or not capabilities_for(backend).explicit_cancel:
+        return
+
+    router_state = getattr(request.app.state, "text_backend_router", None)
+    if router_state is None:
+        return
+    try:
+        client = router_state.client_for(backend)
+    except TextBackendUnavailableError:
+        return
+
+    cancel_turn = getattr(client, "cancel_turn", None)
+    if cancel_turn is None:
+        return
+
+    try:
+        stopped = await cancel_turn(turn_id)
+    except Exception:
+        # Unreachable backend, 422, malformed body: the turn is cancelled locally
+        # either way, and the caller gets its normal answer.
+        logger.warning("upstream cancel failed turn_id=%s backend=%s", turn_id, backend)
+        return
+    # cancelled: false means nothing was in flight — a normal outcome, not a failure.
+    logger.info("upstream cancel turn_id=%s backend=%s stopped=%s", turn_id, backend, stopped)
+
+
 @router.post("/turn/{turn_id}/cancel")
 async def cancel_voice_turn(turn_id: str, request: Request) -> dict[str, bool]:
     registry: TurnRegistry = request.app.state.turn_registry
+    backend = registry.backend_for(turn_id)
     if not registry.cancel(turn_id):
         raise HTTPException(status_code=404, detail="turn not found or already finished")
+    await _cancel_upstream(request, backend, turn_id)
     return {"cancelled": True}
 
 

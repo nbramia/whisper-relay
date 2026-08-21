@@ -183,6 +183,7 @@ TTS env vars: [ADR-003](003-kokoro-tts-bm-george.md).
 - [Code conventions](../specs/standards/code-conventions.md)
 - [Testing standards](../specs/standards/testing-standards.md)
 - [ADR-005: LifeOS-owned chat client](005-lifeos-owned-chat-client.md)
+- [ADR-007: Explicit turn cancellation](007-explicit-turn-cancellation.md) — adds `/api/chat/cancel` to this LifeOS surface
 - LifeOS API reference — `/api/ask/stream` (upstream `docs/specs/product/api-reference.md`)
 - linux-whisper README (upstream repo)
 - GitHub issues #3–#7 (issue tracker)

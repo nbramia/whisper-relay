@@ -190,6 +190,10 @@ class HTTPLifeOSClient:
         # tell LifeOS to apply the selected persona's voice formatting rules
         # (LifeOS#390 Phase 3). Unconditional: there is no text-only path into ask().
         body["modality"] = "voice"
+        # Our turn_id doubles as LifeOS's cancel key (LifeOS#611): it exists before
+        # this request goes out, so a barge-in landing before the first SSE frame is
+        # still cancellable — which a conversation_id-keyed cancel could not be.
+        body["client_turn_id"] = turn_id
 
         handoff: HandoffResult | None = None
 
@@ -259,6 +263,23 @@ class HTTPLifeOSClient:
             message=message,
             session_id=data.get("session_id", ""),
         )
+
+    async def cancel_turn(self, client_turn_id: str) -> bool:
+        """Ask LifeOS to stop the turn holding this key. True when it stopped one.
+
+        Keyed on client_turn_id rather than conversation_id so a barge-in before the
+        first SSE frame is still cancellable (LifeOS#611). There is no 404 here: an
+        unknown key is indistinguishable from a turn that already finished, so a
+        `cancelled: false` answer is a normal outcome, not an error.
+        """
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{self._base_url}/api/chat/cancel",
+                json={"client_turn_id": client_turn_id},
+            )
+            if resp.status_code != 200:
+                raise LifeOSError(f"LifeOS cancel returned HTTP {resp.status_code}")
+            return bool(resp.json().get("cancelled"))
 
     async def list_personas(self) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=10.0) as client:
