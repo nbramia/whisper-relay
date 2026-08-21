@@ -60,6 +60,7 @@ flowchart TB
 - Per-turn `persona_id`, `modality=voice`, and `model_override` forwarded to LifeOS and Hermes ([ADR-006](docs/adr/006-hermes-third-text-backend.md)); the agent backend stays context-poor by design
 - Spoken status updates during long tool rounds
 - Engine handoffs in LifeOS mode (`claude_intent` → `/api/chat/handoff`)
+- Barge-in cancels the turn explicitly in LifeOS mode (`/api/chat/cancel`), not by dropping the stream ([ADR-007](docs/adr/007-explicit-turn-cancellation.md))
 - Headless autostart via systemd (API on `127.0.0.1:9788`)
 
 ## What it does not do

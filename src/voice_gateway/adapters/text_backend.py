@@ -28,11 +28,16 @@ class BackendCapabilities:
     persona: bool
     model_override: bool
     handoff: bool
+    # Whether the backend accepts an explicit "stop this turn" call. Without one,
+    # abandoning the stream is the only cancel gesture available (issue #37).
+    explicit_cancel: bool = False
 
 
 _CAPABILITIES = {
     # LifeOS orchestrator: full context, including claude_intent handoffs.
-    BACKEND_LIFEOS: BackendCapabilities(persona=True, model_override=True, handoff=True),
+    BACKEND_LIFEOS: BackendCapabilities(
+        persona=True, model_override=True, handoff=True, explicit_cancel=True
+    ),
     # voice-adapter owns its own session, escalation, and formatting: deliberately
     # context-poor (ADR-004). Do not widen without an ADR.
     BACKEND_AGENT: BackendCapabilities(persona=False, model_override=False, handoff=False),

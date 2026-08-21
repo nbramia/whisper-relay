@@ -15,6 +15,7 @@ from voice_gateway.adapters.text_backend import (
     TextBackendRouter,
     TextBackendUnavailableError,
     capabilities_for,
+    normalize_backend,
 )
 from voice_gateway.adapters.tts import TTSAdapter
 from voice_gateway.audio import AudioNormalizationError, normalize_audio
@@ -105,7 +106,7 @@ class TurnPipeline:
         parse_handoff: bool = True,
     ) -> AsyncIterator[dict[str, Any]]:
         turn_id = str(uuid4())
-        cancel = registry.start(turn_id) if registry else None
+        cancel = registry.start(turn_id, normalize_backend(backend)) if registry else None
 
         try:
             text_client = self._text_backend.client_for(backend)

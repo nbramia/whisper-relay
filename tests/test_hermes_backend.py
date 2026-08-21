@@ -359,18 +359,23 @@ async def test_cancel_hermes_turn_during_stream(tmp_settings):
 
 @pytest.mark.asyncio
 async def test_hermes_request_body_matches_lifeos(lifeos_sse_fixture):
-    """Hermes gets the same per-turn context LifeOS does (issue #32).
+    """Hermes gets the same per-turn *context* LifeOS does (issue #32).
 
-    Doubles as the LifeOS regression: the expected body is spelled out, so a change
-    to what LifeOS receives fails here rather than passing silently.
+    Parity covers persona, modality, and model. It deliberately stops short of
+    `client_turn_id`: that is LifeOS's cancel key (issue #37), and hermes owns its
+    own cancel semantics, so the key is not sent there.
+
+    Doubles as the LifeOS regression: both bodies are spelled out, so a change to
+    what either backend receives fails here rather than passing silently.
     """
-    expected = {
+    shared_context = {
         "question": "what is on my calendar",
         "conversation_id": "c1",
         "persona_id": "fitness",
         "model_override": "opus",
         "modality": "voice",
     }
+    lifeos_expected = {**shared_context, "client_turn_id": "t1"}
 
     lifeos_http = _mock_http(lifeos_sse_fixture)
     with patch("voice_gateway.adapters.lifeos.httpx.AsyncClient", return_value=lifeos_http):
@@ -393,8 +398,8 @@ async def test_hermes_request_body_matches_lifeos(lifeos_sse_fixture):
             model_override="opus",
         )
 
-    assert lifeos_http.stream.call_args.kwargs["json"] == expected
-    assert hermes_http.stream.call_args.kwargs["json"] == expected
+    assert lifeos_http.stream.call_args.kwargs["json"] == lifeos_expected
+    assert hermes_http.stream.call_args.kwargs["json"] == shared_context
 
 
 @pytest.mark.asyncio

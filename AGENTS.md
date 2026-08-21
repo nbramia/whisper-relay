@@ -20,6 +20,7 @@ Details live in ADRs — do not duplicate here.
 - **linux-whisper + LifeOS integration** → [ADR-002](docs/adr/002-upstream-integration-boundaries.md)
 - **TTS** → [ADR-003](docs/adr/003-kokoro-tts-bm-george.md)
 - **Third backend (Hermes) + context capabilities** → [ADR-006](docs/adr/006-hermes-third-text-backend.md)
+- **Turn cancellation** → [ADR-007](docs/adr/007-explicit-turn-cancellation.md)
 - **Invariants & boundaries** → sections below
 
 ## Documentation
@@ -33,6 +34,7 @@ Rules in [docs/AGENTS.md](docs/AGENTS.md) are mandatory. Navigation:
 | How do we call linux-whisper and LifeOS? | [ADR-002](docs/adr/002-upstream-integration-boundaries.md) |
 | LifeOS vs Agent backend toggle | [ADR-004](docs/adr/004-dual-text-backends.md) |
 | Hermes backend + per-backend context capabilities | [ADR-006](docs/adr/006-hermes-third-text-backend.md) |
+| How is a turn cancelled (barge-in, hangup)? | [ADR-007](docs/adr/007-explicit-turn-cancellation.md) |
 | LifeOS-owned client + reverse proxy | [ADR-005](docs/adr/005-lifeos-owned-chat-client.md) (Accepted) |
 | Development principles (source) | [docs/development-principles.md](docs/development-principles.md) |
 | Python code conventions | [docs/specs/standards/code-conventions.md](docs/specs/standards/code-conventions.md) |
@@ -115,4 +117,5 @@ uvicorn voice_gateway.main:app --host 127.0.0.1 --port 9788
 - [docs/adr/002-upstream-integration-boundaries.md](docs/adr/002-upstream-integration-boundaries.md)
 - [docs/adr/003-kokoro-tts-bm-george.md](docs/adr/003-kokoro-tts-bm-george.md)
 - [docs/adr/006-hermes-third-text-backend.md](docs/adr/006-hermes-third-text-backend.md)
+- [docs/adr/007-explicit-turn-cancellation.md](docs/adr/007-explicit-turn-cancellation.md)
 - [docs/development-principles.md](docs/development-principles.md)

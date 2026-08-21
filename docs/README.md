@@ -10,6 +10,7 @@
 | linux-whisper + LifeOS integration | [adr/002](adr/002-upstream-integration-boundaries.md) | Issues #4, #5 cite this |
 | Dual text backends (LifeOS + Agent) | [adr/004](adr/004-dual-text-backends.md) | UI toggle; voice-adapter in agents repo |
 | **Third backend (Hermes) + context capabilities** | [adr/006](adr/006-hermes-third-text-backend.md) | Extends adr/004; per-backend persona/modality/model table |
+| **Cancelling a turn (barge-in, hangup)** | [adr/007](adr/007-explicit-turn-cancellation.md) | Explicit `/api/chat/cancel`; LifeOS #611/#616 context |
 | **LifeOS-owned client + reverse proxy** | [adr/005](adr/005-lifeos-owned-chat-client.md) | Accepted; LifeOS `/chat` is the client |
 | TTS (Kokoro, `bm_george`, env vars) | [adr/003](adr/003-kokoro-tts-bm-george.md) | Do not duplicate config elsewhere |
 | Engineering process (generic) | [development-principles.md](development-principles.md) | AGENTS.md links; no project-specific duplication |
@@ -28,6 +29,7 @@
 | [004](adr/004-dual-text-backends.md) | Dual text backends (LifeOS + Agent) |
 | [005](adr/005-lifeos-owned-chat-client.md) | LifeOS-owned `/chat` client (Accepted) |
 | [006](adr/006-hermes-third-text-backend.md) | Hermes as a third text backend (Accepted) |
+| [007](adr/007-explicit-turn-cancellation.md) | Explicit turn cancellation (Accepted) |
 
 Rules: [adr/AGENTS.md](adr/AGENTS.md)
 
