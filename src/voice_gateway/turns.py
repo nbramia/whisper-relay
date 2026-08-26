@@ -54,6 +54,11 @@ class TurnPipeline:
         self._text_backend = text_backend
         self._tts = tts
 
+    @property
+    def stt(self) -> STTAdapter:
+        """The warm STT singleton, for callers that need bare transcription (#710)."""
+        return self._stt
+
     async def warmup(self) -> None:
         await self._stt.warmup()
         await self._tts.warmup()

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
@@ -20,6 +20,7 @@ from voice_gateway.adapters.text_backend import (
     capabilities_for,
     normalize_backend,
 )
+from voice_gateway.audio import AudioNormalizationError, normalize_audio
 from voice_gateway.cancel import TurnRegistry
 from voice_gateway.models import VoiceTurnResponse
 from voice_gateway.turns import TurnError, TurnPipeline
@@ -64,6 +65,50 @@ def _get_pipeline(request: Request) -> TurnPipeline:
 
 def _get_storage(request: Request):
     return request.app.state.storage
+
+
+@router.post("/transcribe")
+async def voice_transcribe(
+    request: Request,
+    audio: UploadFile | None = File(default=None),
+) -> dict[str, str]:
+    """Bare STT for the "Listening" wake-word check (LifeOS #710).
+
+    Deliberately stops after normalize + transcribe: no LLM call, no TTS, no
+    turn registry entry, no storage write, no SSE — a wake check must never
+    look like a turn to anything downstream, including LifeOS #711's
+    persistence tee (which keys off `turn/stream`'s `done` events, never
+    emitted here).
+    """
+    if audio is None or not audio.filename:
+        raise HTTPException(status_code=400, detail="audio required")
+
+    settings = request.app.state.settings
+    raw = await audio.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="audio required")
+    if len(raw) > settings.max_upload_bytes:
+        raise HTTPException(status_code=413, detail="upload too large")
+
+    try:
+        normalized = normalize_audio(
+            raw,
+            content_type=audio.content_type,
+            filename=audio.filename,
+            ffmpeg_bin=settings.ffmpeg_bin,
+            max_duration_s=settings.max_audio_duration_s,
+        )
+    except AudioNormalizationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    stt = _get_pipeline(request).stt
+    try:
+        transcript, _ = await stt.transcribe(normalized.pcm_bytes, turn_id=str(uuid4()))
+    except Exception as exc:
+        logger.exception("wake-check STT failed")
+        raise HTTPException(status_code=503, detail="STT engine unavailable") from exc
+
+    return {"transcript": transcript}
 
 
 async def _read_turn_upload(
