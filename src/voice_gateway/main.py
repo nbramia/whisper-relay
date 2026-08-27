@@ -26,18 +26,32 @@ logger = logging.getLogger(__name__)
 def build_text_backend_router(settings: Settings) -> TextBackendRouter:
     lifeos = HTTPLifeOSClient(settings.lifeos_base_url, settings.lifeos_timeout_s)
     agent: HTTPAgentBackendClient | None = None
-    if settings.agent_backend_enabled:
+    if settings.agent_backend_enabled and settings.agent_backend_url:
         agent = HTTPAgentBackendClient(
             settings.agent_backend_url,
             settings.agent_backend_timeout_s,
             api_token=settings.agent_backend_token,
         )
+    elif settings.agent_backend_enabled:
+        # AGENT_BACKEND_ENABLED defaults to True; a same-host default address here
+        # would risk silently answering as another person's backend (#41). Treat
+        # this exactly like the disabled case — TextBackendRouter.client_for("agent")
+        # already raises TextBackendUnavailableError when self._agent is None.
+        logger.warning(
+            "agent backend is enabled (AGENT_BACKEND_ENABLED=true) but "
+            "AGENT_BACKEND_URL is not set — treating agent backend as unavailable"
+        )
     hermes: HTTPHermesBackendClient | None = None
-    if settings.hermes_backend_enabled:
+    if settings.hermes_backend_enabled and settings.hermes_backend_url:
         hermes = HTTPHermesBackendClient(
             settings.hermes_backend_url,
             settings.hermes_backend_timeout_s,
             api_token=settings.hermes_backend_token,
+        )
+    elif settings.hermes_backend_enabled:
+        logger.warning(
+            "hermes backend is enabled (HERMES_BACKEND_ENABLED=true) but "
+            "HERMES_BACKEND_URL is not set — treating hermes backend as unavailable"
         )
     return TextBackendRouter(lifeos, agent, hermes)
 

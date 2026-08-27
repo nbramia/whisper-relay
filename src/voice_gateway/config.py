@@ -21,16 +21,23 @@ class Settings(BaseSettings):
     lifeos_base_url: str = Field(default="http://127.0.0.1:8000", alias="LIFEOS_BASE_URL")
     lifeos_timeout_s: float = Field(default=300.0, alias="LIFEOS_TIMEOUT_S")
 
-    agent_backend_url: str = Field(default="http://127.0.0.1:8100", alias="AGENT_BACKEND_URL")
+    # No same-host default: agent_backend_enabled defaults to True, and a backend
+    # reachable by more than one person's deployment must never guess a loopback
+    # address (#41) — an enabled-but-unaddressed backend is treated as unavailable
+    # by build_text_backend_router, not silently pointed at whatever answers this
+    # port on the host.
+    agent_backend_url: str | None = Field(default=None, alias="AGENT_BACKEND_URL")
     agent_backend_timeout_s: float = Field(default=300.0, alias="AGENT_BACKEND_TIMEOUT_S")
     agent_backend_token: str | None = Field(default=None, alias="AGENT_BACKEND_TOKEN")
     agent_backend_enabled: bool = Field(default=True, alias="AGENT_BACKEND_ENABLED")
 
-    # 8790 is not this repo's choice: it is the Hermes LifeOS-adapter's own default
-    # (`LIFEOS_ADAPTER_PORT` in hermes `lifeos_adapter/config.py`, documented in that
-    # repo's docs/adapter-operations.md). Two repos independently picking a number is
-    # what broke this before (#35) — follow the service, don't restate a guess.
-    hermes_backend_url: str = Field(default="http://127.0.0.1:8790", alias="HERMES_BACKEND_URL")
+    # Same rationale as agent_backend_url above (#41) — no same-host default.
+    # 8790 remains the value operators should set explicitly: it's the Hermes
+    # LifeOS-adapter's own default (`LIFEOS_ADAPTER_PORT` in hermes
+    # `lifeos_adapter/config.py`, documented in that repo's docs/adapter-operations.md).
+    # Two repos independently picking a number is what broke this before (#35) —
+    # follow the service, don't restate a guess as this gateway's own default.
+    hermes_backend_url: str | None = Field(default=None, alias="HERMES_BACKEND_URL")
     hermes_backend_timeout_s: float = Field(default=300.0, alias="HERMES_BACKEND_TIMEOUT_S")
     hermes_backend_token: str | None = Field(default=None, alias="HERMES_BACKEND_TOKEN")
     hermes_backend_enabled: bool = Field(default=True, alias="HERMES_BACKEND_ENABLED")
