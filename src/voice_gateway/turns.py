@@ -75,6 +75,7 @@ class TurnPipeline:
         persona_id: str | None = None,
         model_override: str | None = None,
         parse_handoff: bool = True,
+        text_backend: TextBackendRouter | None = None,
     ) -> VoiceTurnResponse:
         response: VoiceTurnResponse | None = None
         async for event in self.run_turn_stream(
@@ -87,6 +88,7 @@ class TurnPipeline:
             persona_id=persona_id,
             model_override=model_override,
             parse_handoff=parse_handoff,
+            text_backend=text_backend,
         ):
             if event["type"] == "done":
                 response = VoiceTurnResponse(**event["data"])
@@ -109,12 +111,17 @@ class TurnPipeline:
         persona_id: str | None = None,
         model_override: str | None = None,
         parse_handoff: bool = True,
+        text_backend: TextBackendRouter | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         turn_id = str(uuid4())
         cancel = registry.start(turn_id, normalize_backend(backend)) if registry else None
+        # Per-tenant router override (#40) — None (the default) preserves the
+        # single-tenant path exactly: every existing caller keeps using the one
+        # process-wide router this pipeline was built with.
+        router = text_backend or self._text_backend
 
         try:
-            text_client = self._text_backend.client_for(backend)
+            text_client = router.client_for(backend)
         except TextBackendUnavailableError as exc:
             yield {"type": "error", "message": str(exc), "status_code": 503}
             return

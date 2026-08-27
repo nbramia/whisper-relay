@@ -18,6 +18,7 @@ from voice_gateway.config import Settings, get_settings
 from voice_gateway.logging import configure_logging
 from voice_gateway.routes import health, root, voice
 from voice_gateway.storage import TurnStorage
+from voice_gateway.tenants import TenantRegistry, build_tenant_registry
 from voice_gateway.turns import TurnPipeline
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,10 @@ def create_app(
 
     storage = TurnStorage(settings.turns_dir, settings.turn_retention_hours)
     text_backend = build_text_backend_router(settings)
+    # Raises TenantConfigError on a misconfigured TENANT_BACKENDS_JSON (blank or
+    # duplicate token) — a startup crash is intentional here, not a bug: an
+    # ambiguous tenant table must never reach request handling (#40).
+    tenant_registry: TenantRegistry = build_tenant_registry(settings)
     if pipeline is None:
         stt = LinuxWhisperSTTAdapter(settings)
         tts = build_tts_adapter(settings)
@@ -117,6 +122,7 @@ def create_app(
     app.state.storage = storage
     app.state.pipeline = pipeline
     app.state.text_backend_router = text_backend
+    app.state.tenant_registry = tenant_registry
     app.state.lifeos_client = text_backend.lifeos
     app.state.lifeos_personas = {
         "personas": [

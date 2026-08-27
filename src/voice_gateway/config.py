@@ -4,11 +4,32 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _DEFAULT_DATA = Path.home() / ".local/share/whisper-relay"
 _DEFAULT_KOKORO_DIR = _DEFAULT_DATA / "tts/kokoro"
+
+
+class TenantBackend(BaseModel):
+    """One tenant's backend targets, for a process serving more than one person (#40).
+
+    Keyed by a tenant id in TENANT_BACKENDS_JSON (e.g. "taylor") — a label only,
+    safe to log. `tenant_token` is the operator-issued secret that a request must
+    present to be routed here; it is never derived from a client-suppliable field.
+    Agent/Hermes are available for this tenant only when their URL is set — there
+    is no separate enabled flag, and no loopback default (same rationale as #41).
+    """
+
+    tenant_token: str
+    lifeos_base_url: str
+    lifeos_timeout_s: float = 300.0
+    agent_backend_url: str | None = None
+    agent_backend_timeout_s: float = 300.0
+    agent_backend_token: str | None = None
+    hermes_backend_url: str | None = None
+    hermes_backend_timeout_s: float = 300.0
+    hermes_backend_token: str | None = None
 
 
 class Settings(BaseSettings):
@@ -59,6 +80,14 @@ class Settings(BaseSettings):
     kokoro_speed: float = Field(default=1.0, alias="KOKORO_SPEED")
 
     turn_retention_hours: int = Field(default=24, alias="TURN_RETENTION_HOURS")
+
+    # Per-tenant backend targets for a process serving more than one person (#40).
+    # Empty by default: a deployment that never sets this is single-tenant and
+    # behaves exactly as before — the settings above are the only backend targets,
+    # and no tenant token is required or checked on any request.
+    tenant_backends: dict[str, TenantBackend] = Field(
+        default_factory=dict, alias="TENANT_BACKENDS_JSON"
+    )
 
     @property
     def turns_dir(self) -> Path:
