@@ -628,3 +628,39 @@ async def test_multi_tenant_audio_legacy_clip_with_no_tenant_tag_is_fail_closed(
         )
 
     assert resp.status_code == 403
+
+
+@pytest.mark.parametrize("raw", ["null", "[]"])
+@pytest.mark.asyncio
+async def test_multi_tenant_audio_corrupted_tenant_sidecar_is_fail_closed(tmp_path, raw):
+    """A tenant.json that parses as valid JSON but isn't the expected object
+    shape (e.g. `null` or `[]` from a corrupted or hand-edited write) must
+    403, not 500 (#50 review follow-up) — same fail-closed outcome as a
+    missing sidecar, and zero clip bytes served either way."""
+    app, _default_stub = _make_app(tmp_path)
+
+    storage: TurnStorage = app.state.storage
+    turn_id = str(uuid4())
+    clip_path = storage.clip_path(turn_id, "main")
+    clip_path.parent.mkdir(parents=True, exist_ok=True)
+    clip_path.write_bytes(b"RIFF....WAVEfmt ")
+    (storage.turn_path(turn_id) / "tenant.json").write_text(raw, encoding="utf-8")
+    assert storage.read_tenant_id(turn_id) is None
+
+    app.state.tenant_registry = TenantRegistry(
+        {
+            "alice-token": ResolvedTenant(
+                tenant_id="alice", router=TextBackendRouter(StubLifeOSClient())
+            ),
+        }
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.get(
+            f"/api/voice/audio/{turn_id}", headers={TENANT_TOKEN_HEADER: "alice-token"}
+        )
+
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "audio not found"
+    assert "audio" not in resp.headers.get("content-type", "")

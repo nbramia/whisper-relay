@@ -63,9 +63,13 @@ class TurnStorage:
         if not tenant_file.is_file():
             return None
         try:
-            return json.loads(tenant_file.read_text(encoding="utf-8")).get("tenant_id")
+            parsed = json.loads(tenant_file.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             return None
+        if not isinstance(parsed, dict):
+            return None
+        tenant_id = parsed.get("tenant_id")
+        return tenant_id if isinstance(tenant_id, str) else None
 
     def cleanup_expired(self) -> int:
         cutoff = time.time() - self._retention_hours * 3600
