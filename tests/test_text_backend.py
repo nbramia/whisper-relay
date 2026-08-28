@@ -40,7 +40,9 @@ def test_text_backend_router_agent_missing_raises():
 
 
 def test_build_text_backend_router_includes_agent_when_enabled(tmp_path):
-    settings = Settings(data_dir=tmp_path, agent_backend_enabled=True)
+    settings = Settings(
+        data_dir=tmp_path, agent_backend_enabled=True, agent_backend_url="http://127.0.0.1:8100"
+    )
     router = build_text_backend_router(settings)
     assert router.agent is not None
     assert router.client_for("agent") is router.agent
@@ -52,6 +54,21 @@ def test_build_text_backend_router_omits_agent_when_disabled(tmp_path):
     assert router.agent is None
 
 
+def test_build_text_backend_router_omits_agent_when_enabled_but_unaddressed(tmp_path, caplog):
+    """#41: agent_backend_enabled defaults to True, but a left-unset address must
+    resolve to unavailable, not a same-host loopback guess."""
+    settings = Settings(data_dir=tmp_path, agent_backend_enabled=True, agent_backend_url=None)
+    with caplog.at_level("WARNING"):
+        router = build_text_backend_router(settings)
+    assert router.agent is None
+    with pytest.raises(TextBackendUnavailableError):
+        router.client_for("agent")
+    assert any(
+        "AGENT_BACKEND_URL" in record.message and "agent" in record.message.lower()
+        for record in caplog.records
+    )
+
+
 def test_text_backend_router_hermes_missing_raises():
     router = TextBackendRouter(StubLifeOSClient())
     with pytest.raises(TextBackendUnavailableError):
@@ -59,7 +76,9 @@ def test_text_backend_router_hermes_missing_raises():
 
 
 def test_build_text_backend_router_includes_hermes_when_enabled(tmp_path):
-    settings = Settings(data_dir=tmp_path, hermes_backend_enabled=True)
+    settings = Settings(
+        data_dir=tmp_path, hermes_backend_enabled=True, hermes_backend_url="http://127.0.0.1:8790"
+    )
     router = build_text_backend_router(settings)
     assert router.hermes is not None
     assert router.client_for("hermes") is router.hermes
@@ -71,6 +90,21 @@ def test_build_text_backend_router_omits_hermes_when_disabled(tmp_path):
     assert router.hermes is None
     with pytest.raises(TextBackendUnavailableError):
         router.client_for("hermes")
+
+
+def test_build_text_backend_router_omits_hermes_when_enabled_but_unaddressed(tmp_path, caplog):
+    """#41: hermes_backend_enabled defaults to True, but a left-unset address must
+    resolve to unavailable, not a same-host loopback guess."""
+    settings = Settings(data_dir=tmp_path, hermes_backend_enabled=True, hermes_backend_url=None)
+    with caplog.at_level("WARNING"):
+        router = build_text_backend_router(settings)
+    assert router.hermes is None
+    with pytest.raises(TextBackendUnavailableError):
+        router.client_for("hermes")
+    assert any(
+        "HERMES_BACKEND_URL" in record.message and "hermes" in record.message.lower()
+        for record in caplog.records
+    )
 
 
 def test_unknown_backend_still_routes_to_lifeos(tmp_path):

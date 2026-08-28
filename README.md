@@ -142,7 +142,7 @@ and a URL pointing at a port nothing serves reports exactly that ([#35](https://
 - **linux-whisper** installed and configured (`~/.config/linux-whisper/config.yaml`)
 - **LifeOS** running locally (default `http://127.0.0.1:8000`) for LifeOS mode
 - **agents voice-adapter** (optional) for Agent mode — `docker compose --profile voice up` in [agents](https://github.com/nbramia/agents); set `AGENT_BACKEND_URL=http://127.0.0.1:8100` (see [ADR-004](docs/adr/004-dual-text-backends.md))
-- **Hermes** (optional) for Hermes mode — `HERMES_BACKEND_URL` defaults to `http://127.0.0.1:8790`, which is the Hermes LifeOS-adapter's own default (`LIFEOS_ADAPTER_PORT`), not a number chosen here; set `HERMES_BACKEND_TOKEN` to the adapter's `LIFEOS_ADAPTER_AUTH_TOKEN` (see [ADR-006](docs/adr/006-hermes-third-text-backend.md))
+- **Hermes** (optional) for Hermes mode — set `HERMES_BACKEND_URL` explicitly to the adapter's listen address (its own default is `http://127.0.0.1:8790`, i.e. `LIFEOS_ADAPTER_PORT`, not a number chosen here); whisper-relay itself has no default for this setting, so an enabled-but-unset address is treated as unavailable rather than guessed ([#41](https://github.com/nbramia/whisper-relay/issues/41)). Set `HERMES_BACKEND_TOKEN` to the adapter's `LIFEOS_ADAPTER_AUTH_TOKEN` (see [ADR-006](docs/adr/006-hermes-third-text-backend.md))
 - `ffmpeg` for audio normalization
 - Tailscale for phone → Linux access
 - Kokoro TTS — see [ADR-003](docs/adr/003-kokoro-tts-bm-george.md)
