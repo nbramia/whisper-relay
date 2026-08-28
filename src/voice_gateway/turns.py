@@ -112,9 +112,14 @@ class TurnPipeline:
         model_override: str | None = None,
         parse_handoff: bool = True,
         text_backend: TextBackendRouter | None = None,
+        tenant_id: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         turn_id = str(uuid4())
-        cancel = registry.start(turn_id, normalize_backend(backend)) if registry else None
+        cancel = (
+            registry.start(turn_id, normalize_backend(backend), tenant_id=tenant_id)
+            if registry
+            else None
+        )
         # Per-tenant router override (#40) — None (the default) preserves the
         # single-tenant path exactly: every existing caller keeps using the one
         # process-wide router this pipeline was built with.

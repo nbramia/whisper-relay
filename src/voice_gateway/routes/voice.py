@@ -22,7 +22,7 @@ from voice_gateway.adapters.text_backend import (
     normalize_backend,
 )
 from voice_gateway.audio import AudioNormalizationError, normalize_audio
-from voice_gateway.cancel import TurnRegistry
+from voice_gateway.cancel import TurnRegistry, TurnTenantMismatchError
 from voice_gateway.models import VoiceTurnResponse
 from voice_gateway.tenants import TENANT_TOKEN_HEADER, TenantRegistry
 from voice_gateway.turns import TurnError, TurnPipeline
@@ -69,21 +69,21 @@ def _get_storage(request: Request):
     return request.app.state.storage
 
 
-def _resolve_text_backend_router(request: Request) -> TextBackendRouter:
-    """Which tenant's backend targets this turn uses (#40).
+def _resolve_tenant_and_router(request: Request) -> tuple[str | None, TextBackendRouter]:
+    """Which tenant this request belongs to, and that tenant's backend targets (#40).
 
     Single-tenant mode (the default — no TENANT_BACKENDS_JSON configured) returns
-    the one process-wide router unchanged: today's two production deployments
-    never reach any of the code below. Once per-tenant routing is configured, a
-    request must present a token matching a configured tenant in the
-    TENANT_TOKEN_HEADER header — an inbound value the operator's own network
+    (None, the one process-wide router) unchanged: today's two production
+    deployments never reach any of the code below. Once per-tenant routing is
+    configured, a request must present a token matching a configured tenant in
+    the TENANT_TOKEN_HEADER header — an inbound value the operator's own network
     boundary controls, never a client-suppliable free-text field. A missing or
     unrecognized token is rejected outright; there is no fallback to the
     process-wide router for an ambiguous or unset tenant.
     """
     registry: TenantRegistry = request.app.state.tenant_registry
     if not registry.enabled:
-        return request.app.state.text_backend_router
+        return None, request.app.state.text_backend_router
 
     resolved = registry.resolve(request.headers.get(TENANT_TOKEN_HEADER))
     if resolved is None:
@@ -92,7 +92,19 @@ def _resolve_text_backend_router(request: Request) -> TextBackendRouter:
             TENANT_TOKEN_HEADER,
         )
         raise HTTPException(status_code=403, detail="unknown or missing tenant")
-    return resolved.router
+    return resolved.tenant_id, resolved.router
+
+
+def _resolve_text_backend_router(request: Request) -> TextBackendRouter:
+    _tenant_id, router = _resolve_tenant_and_router(request)
+    return router
+
+
+def _resolve_tenant(request: Request) -> str | None:
+    """Caller's tenant id, or None in single-tenant mode. Raises 403 (via
+    `_resolve_tenant_and_router`) in multi-tenant mode when unresolved."""
+    tenant_id, _router = _resolve_tenant_and_router(request)
+    return tenant_id
 
 
 @router.post("/transcribe")
@@ -211,7 +223,7 @@ async def voice_turn_stream(
     model_override: str | None = Form(default=None),
 ) -> StreamingResponse:
     pipeline = _get_pipeline(request)
-    text_backend_router = _resolve_text_backend_router(request)
+    tenant_id, text_backend_router = _resolve_tenant_and_router(request)
     raw, content_type, filename, conv_id, client_transcript = await _read_turn_upload(
         request, audio, transcript, conversation_id
     )
@@ -234,6 +246,7 @@ async def voice_turn_stream(
             model_override=model,
             parse_handoff=parse_handoff,
             text_backend=text_backend_router,
+            tenant_id=tenant_id,
         ):
             yield f"data: {json.dumps(event)}\n\n"
             if event.get("type") in {"done", "error", "cancelled"}:
@@ -283,10 +296,30 @@ async def _cancel_upstream(request: Request, backend: str | None, turn_id: str) 
 
 @router.post("/turn/{turn_id}/cancel")
 async def cancel_voice_turn(turn_id: str, request: Request) -> dict[str, bool]:
+    """Resolves the caller's tenant *before* touching the turn registry (#48):
+    the old order let any caller — one tenant's token, or none at all — cancel
+    another tenant's in-flight turn by id, since the registry check ran first
+    and ids share one flat namespace. `_resolve_tenant` 403s on an unresolved
+    tenant in multi-tenant mode; single-tenant mode is unaffected (tenant_id is
+    always None, matching every entry `start()` recorded).
+    """
+    tenant_id = _resolve_tenant(request)
     registry: TurnRegistry = request.app.state.turn_registry
-    backend = registry.backend_for(turn_id)
-    if not registry.cancel(turn_id):
+    try:
+        cancelled = registry.cancel(turn_id, tenant_id)
+    except TurnTenantMismatchError as exc:
+        # A caller can never cancel, or reach any detail of, a turn it
+        # doesn't own — that's the property #48 requires. The 403-vs-404
+        # split between this branch and the "no such turn" 404 below does let
+        # a caller with a valid tenant token distinguish "that id belongs to
+        # someone else" from "that id doesn't exist" for a turn_id it already
+        # has in hand; turn ids are unguessable UUIDv4s (never enumerable),
+        # so this is the same accepted-low-risk gap the review calls out for
+        # the token-guessing case, not a new one.
+        raise HTTPException(status_code=403, detail="turn not found or already finished") from exc
+    if not cancelled:
         raise HTTPException(status_code=404, detail="turn not found or already finished")
+    backend = registry.backend_for(turn_id, tenant_id)
     await _cancel_upstream(request, backend, turn_id)
     return {"cancelled": True}
 

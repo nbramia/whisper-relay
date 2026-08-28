@@ -2,13 +2,51 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_DATA = Path.home() / ".local/share/whisper-relay"
 _DEFAULT_KOKORO_DIR = _DEFAULT_DATA / "tts/kokoro"
+
+# Opt-in for the dotenv fallback (issue #46). Two co-located instances can share
+# one checkout's WorkingDirectory — each systemd unit supplies its own
+# EnvironmentFile=, which populates the *process* environment directly, so
+# Settings sees those values either way. pydantic-settings' default dotenv
+# fallback instead resolves `./.env` relative to the CWD, which is shared
+# between such instances; on the live host that path is a symlink to one
+# operator's own env file, so a second instance whose own environment omits a
+# key would silently inherit the first operator's value for it. Dotenv is only
+# needed for a bare local-dev invocation with no EnvironmentFile= at all, so it
+# is opt-in rather than a default.
+_DOTENV_OPT_IN_VAR = "VOICE_GATEWAY_DOTENV"
+_DOTENV_PATH_VAR = "VOICE_GATEWAY_DOTENV_FILE"
+
+
+def _resolve_env_file() -> str | None:
+    """The dotenv path Settings() should read, or None to use process env only.
+
+    Read from `os.environ` at each Settings() construction (not baked into
+    model_config at class-definition time) so tests can toggle it per case.
+    """
+    if os.environ.get(_DOTENV_OPT_IN_VAR, "").strip().lower() not in {"1", "true", "yes"}:
+        return None
+    return os.environ.get(_DOTENV_PATH_VAR, ".env")
+
+
+class RequiredSettingError(RuntimeError):
+    """A required setting is missing or invalid. Raised at startup only.
+
+    Named to avoid colliding with `pydantic_settings.SettingsError` (a
+    different, unrelated exception from the library `Settings` inherits
+    from) — an `except SettingsError` written against this module could
+    otherwise silently catch the wrong one depending on import order.
+    """
 
 
 class TenantBackend(BaseModel):
@@ -19,7 +57,13 @@ class TenantBackend(BaseModel):
     present to be routed here; it is never derived from a client-suppliable field.
     Agent/Hermes are available for this tenant only when their URL is set — there
     is no separate enabled flag, and no loopback default (same rationale as #41).
+
+    `extra="forbid"`: a misspelled key in TENANT_BACKENDS_JSON must fail startup
+    loudly rather than being silently dropped (#48) — e.g. `lifeos_base_ur` would
+    otherwise leave `lifeos_base_url` unset with no indication why.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     tenant_token: str
     lifeos_base_url: str
@@ -33,14 +77,51 @@ class TenantBackend(BaseModel):
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
+    model_config = SettingsConfigDict(extra="ignore", populate_by_name=True)
+
+    def __init__(self, **values: object) -> None:
+        # Resolved fresh on every construction rather than baked into
+        # model_config (issue #46) — see _resolve_env_file().
+        values.setdefault("_env_file", _resolve_env_file())
+        try:
+            super().__init__(**values)
+        except ValidationError as exc:
+            # Both "the key is absent" (type "missing") and "the key is set to
+            # blank/whitespace" (the field_validator below, type "value_error")
+            # mean the same thing here: no usable LIFEOS_BASE_URL was given.
+            bad_lifeos_url = any(
+                err["loc"] and err["loc"][0] in {"LIFEOS_BASE_URL", "lifeos_base_url"}
+                for err in exc.errors()
+            )
+            if bad_lifeos_url:
+                raise RequiredSettingError(
+                    "LIFEOS_BASE_URL is required and has no default (#49) — a "
+                    "same-host default risks silently answering as another "
+                    "operator's LifeOS. Set LIFEOS_BASE_URL in the environment."
+                ) from exc
+            raise
 
     host: str = Field(default="0.0.0.0", alias="VOICE_GATEWAY_HOST")
     port: int = Field(default=9788, alias="VOICE_GATEWAY_PORT")
     data_dir: Path = Field(default=_DEFAULT_DATA, alias="VOICE_GATEWAY_DATA_DIR")
 
-    lifeos_base_url: str = Field(default="http://127.0.0.1:8000", alias="LIFEOS_BASE_URL")
+    # Required, no default (#49): a same-host default would risk silently
+    # answering as another operator's LifeOS on a shared host — the same class
+    # of bug #41 fixed for agent/hermes. Both production instances set this
+    # explicitly already.
+    lifeos_base_url: str = Field(alias="LIFEOS_BASE_URL")
     lifeos_timeout_s: float = Field(default=300.0, alias="LIFEOS_TIMEOUT_S")
+
+    @field_validator("lifeos_base_url")
+    @classmethod
+    def _lifeos_base_url_not_blank(cls, v: str) -> str:
+        # A present-but-blank value (LIFEOS_BASE_URL= with nothing after it)
+        # is exactly as unusable as an absent one — reject it the same way,
+        # rather than letting an empty string quietly become the LifeOS
+        # client's base URL.
+        if not v.strip():
+            raise ValueError("LIFEOS_BASE_URL must not be blank")
+        return v
 
     # No same-host default: agent_backend_enabled defaults to True, and a backend
     # reachable by more than one person's deployment must never guess a loopback
@@ -95,4 +176,14 @@ class Settings(BaseSettings):
 
 
 def get_settings() -> Settings:
+    env_file = _resolve_env_file()
+    if env_file is not None:
+        logger.info(
+            "settings: dotenv fallback enabled (%s=1), reading %s", _DOTENV_OPT_IN_VAR, env_file
+        )
+    else:
+        logger.info(
+            "settings: process environment only — no dotenv fallback (set %s=1 to opt in)",
+            _DOTENV_OPT_IN_VAR,
+        )
     return Settings()

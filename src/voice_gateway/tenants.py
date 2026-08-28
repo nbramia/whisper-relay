@@ -60,13 +60,19 @@ class TenantRegistry:
         return bool(self._by_token)
 
     def resolve(self, token: str | None) -> ResolvedTenant | None:
-        """None when `token` is missing/empty or matches no configured tenant.
+        """None when `token` is missing/empty, non-ASCII, or matches no configured
+        tenant.
 
         Compares against every candidate with `hmac.compare_digest` rather than a
         dict lookup, so a wrong guess doesn't get to key off dict-hash timing —
         cheap here since the tenant count is small and fixed at process startup.
+        `hmac.compare_digest` raises TypeError for a `str` containing non-ASCII
+        characters, which would otherwise surface as a 500 instead of the 403
+        every other unrecognized token gets (#48) — every configured token is
+        ASCII-only (enforced in build_tenant_registry below), so a non-ASCII
+        header value can never legitimately match one anyway.
         """
-        if not token:
+        if not token or not token.isascii():
             return None
         for candidate, resolved in self._by_token.items():
             if hmac.compare_digest(candidate, token):
@@ -107,11 +113,25 @@ def build_tenant_registry(settings: Settings) -> TenantRegistry:
     """Build the per-tenant router table from `settings.tenant_backends`.
 
     Fails loudly at startup — raises `TenantConfigError` — for a misconfiguration
-    that would otherwise create ambiguity at request time: a blank token, or a
-    token reused across two tenants. This must never be caught and downgraded to
-    a warning; an ambiguous tenant table is exactly the failure mode #40 exists
-    to close.
+    that would otherwise create ambiguity at request time: a blank token, a
+    non-ASCII token (TenantRegistry.resolve can never match one — see there), or
+    a token reused across two tenants. This must never be caught and downgraded
+    to a warning; an ambiguous tenant table is exactly the failure mode #40
+    exists to close.
+
+    A *present but empty* TENANT_BACKENDS_JSON (`{}`) is different: it silently
+    reverts to single-tenant behavior, which is indistinguishable at the
+    TenantRegistry level from the setting never having been configured at all.
+    That's the correct behavior for a fresh install, but likely a mistake for an
+    operator who truncated an existing table — warn rather than fail (#48).
     """
+    if not settings.tenant_backends and "tenant_backends" in settings.model_fields_set:
+        logger.warning(
+            "TENANT_BACKENDS_JSON is set but configures zero tenants — running in "
+            "single-tenant mode. If tenant routing was intended, check for a "
+            "truncated or malformed value."
+        )
+
     tenants_by_token: dict[str, ResolvedTenant] = {}
     tenant_id_by_token: dict[str, str] = {}
 
@@ -120,6 +140,12 @@ def build_tenant_registry(settings: Settings) -> TenantRegistry:
         if not token:
             raise TenantConfigError(
                 f"TENANT_BACKENDS_JSON: tenant {tenant_id!r} has an empty tenant_token"
+            )
+        if not token.isascii():
+            raise TenantConfigError(
+                f"TENANT_BACKENDS_JSON: tenant_token for {tenant_id!r} contains "
+                "non-ASCII characters — it could never be matched by a request "
+                "(see TenantRegistry.resolve)"
             )
         if token in tenant_id_by_token:
             raise TenantConfigError(
