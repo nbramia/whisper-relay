@@ -21,6 +21,7 @@ Details live in ADRs — do not duplicate here.
 - **TTS** → [ADR-003](docs/adr/003-kokoro-tts-bm-george.md)
 - **Third backend (Hermes) + context capabilities** → [ADR-006](docs/adr/006-hermes-third-text-backend.md)
 - **Turn cancellation** → [ADR-007](docs/adr/007-explicit-turn-cancellation.md)
+- **Per-tenant backend routing** → [ADR-008](docs/adr/008-per-tenant-backend-routing.md)
 - **Invariants & boundaries** → sections below
 
 ## Documentation
@@ -35,6 +36,7 @@ Rules in [docs/AGENTS.md](docs/AGENTS.md) are mandatory. Navigation:
 | LifeOS vs Agent backend toggle | [ADR-004](docs/adr/004-dual-text-backends.md) |
 | Hermes backend + per-backend context capabilities | [ADR-006](docs/adr/006-hermes-third-text-backend.md) |
 | How is a turn cancelled (barge-in, hangup)? | [ADR-007](docs/adr/007-explicit-turn-cancellation.md) |
+| How does one process serve more than one person? | [ADR-008](docs/adr/008-per-tenant-backend-routing.md) |
 | LifeOS-owned client + reverse proxy | [ADR-005](docs/adr/005-lifeos-owned-chat-client.md) (Accepted) |
 | Development principles (source) | [docs/development-principles.md](docs/development-principles.md) |
 | Python code conventions | [docs/specs/standards/code-conventions.md](docs/specs/standards/code-conventions.md) |
@@ -118,4 +120,5 @@ uvicorn voice_gateway.main:app --host 127.0.0.1 --port 9788
 - [docs/adr/003-kokoro-tts-bm-george.md](docs/adr/003-kokoro-tts-bm-george.md)
 - [docs/adr/006-hermes-third-text-backend.md](docs/adr/006-hermes-third-text-backend.md)
 - [docs/adr/007-explicit-turn-cancellation.md](docs/adr/007-explicit-turn-cancellation.md)
+- [docs/adr/008-per-tenant-backend-routing.md](docs/adr/008-per-tenant-backend-routing.md)
 - [docs/development-principles.md](docs/development-principles.md)

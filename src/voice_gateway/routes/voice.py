@@ -16,6 +16,7 @@ from voice_gateway.adapters.lifeos import (
     persona_supports_handoff,
 )
 from voice_gateway.adapters.text_backend import (
+    TextBackendRouter,
     TextBackendUnavailableError,
     capabilities_for,
     normalize_backend,
@@ -23,6 +24,7 @@ from voice_gateway.adapters.text_backend import (
 from voice_gateway.audio import AudioNormalizationError, normalize_audio
 from voice_gateway.cancel import TurnRegistry
 from voice_gateway.models import VoiceTurnResponse
+from voice_gateway.tenants import TENANT_TOKEN_HEADER, TenantRegistry
 from voice_gateway.turns import TurnError, TurnPipeline
 
 logger = logging.getLogger(__name__)
@@ -65,6 +67,32 @@ def _get_pipeline(request: Request) -> TurnPipeline:
 
 def _get_storage(request: Request):
     return request.app.state.storage
+
+
+def _resolve_text_backend_router(request: Request) -> TextBackendRouter:
+    """Which tenant's backend targets this turn uses (#40).
+
+    Single-tenant mode (the default — no TENANT_BACKENDS_JSON configured) returns
+    the one process-wide router unchanged: today's two production deployments
+    never reach any of the code below. Once per-tenant routing is configured, a
+    request must present a token matching a configured tenant in the
+    TENANT_TOKEN_HEADER header — an inbound value the operator's own network
+    boundary controls, never a client-suppliable free-text field. A missing or
+    unrecognized token is rejected outright; there is no fallback to the
+    process-wide router for an ambiguous or unset tenant.
+    """
+    registry: TenantRegistry = request.app.state.tenant_registry
+    if not registry.enabled:
+        return request.app.state.text_backend_router
+
+    resolved = registry.resolve(request.headers.get(TENANT_TOKEN_HEADER))
+    if resolved is None:
+        logger.warning(
+            "voice turn rejected: missing or unrecognized tenant token (%s)",
+            TENANT_TOKEN_HEADER,
+        )
+        raise HTTPException(status_code=403, detail="unknown or missing tenant")
+    return resolved.router
 
 
 @router.post("/transcribe")
@@ -147,6 +175,7 @@ async def voice_turn(
     model_override: str | None = Form(default=None),
 ) -> VoiceTurnResponse:
     pipeline = _get_pipeline(request)
+    text_backend_router = _resolve_text_backend_router(request)
     raw, content_type, filename, conv_id, client_transcript = await _read_turn_upload(
         request, audio, transcript, conversation_id
     )
@@ -165,6 +194,7 @@ async def voice_turn(
             persona_id=pid,
             model_override=model,
             parse_handoff=_parse_handoff_enabled(request, backend_kind, pid, model),
+            text_backend=text_backend_router,
         )
     except TurnError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -181,6 +211,7 @@ async def voice_turn_stream(
     model_override: str | None = Form(default=None),
 ) -> StreamingResponse:
     pipeline = _get_pipeline(request)
+    text_backend_router = _resolve_text_backend_router(request)
     raw, content_type, filename, conv_id, client_transcript = await _read_turn_upload(
         request, audio, transcript, conversation_id
     )
@@ -202,6 +233,7 @@ async def voice_turn_stream(
             persona_id=pid,
             model_override=model,
             parse_handoff=parse_handoff,
+            text_backend=text_backend_router,
         ):
             yield f"data: {json.dumps(event)}\n\n"
             if event.get("type") in {"done", "error", "cancelled"}:
@@ -221,8 +253,13 @@ async def _cancel_upstream(request: Request, backend: str | None, turn_id: str) 
     if backend is None or not capabilities_for(backend).explicit_cancel:
         return
 
-    router_state = getattr(request.app.state, "text_backend_router", None)
-    if router_state is None:
+    try:
+        router_state = _resolve_text_backend_router(request)
+    except HTTPException:
+        # Same fail-closed tenant check as the turn itself (#40), but best-effort
+        # here: the local cancel already succeeded, so a missing/unrecognized
+        # tenant token on the cancel call just means the upstream call is skipped.
+        logger.warning("upstream cancel skipped: tenant unresolved turn_id=%s", turn_id)
         return
     try:
         client = router_state.client_for(backend)

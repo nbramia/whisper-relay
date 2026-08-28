@@ -195,6 +195,7 @@ sudo systemctl enable --now whisper-relay
 | [ADR-004](docs/adr/004-dual-text-backends.md) | LifeOS vs Agent backend toggle |
 | [ADR-006](docs/adr/006-hermes-third-text-backend.md) | Hermes backend + per-backend context capabilities |
 | [ADR-005](docs/adr/005-lifeos-owned-chat-client.md) | LifeOS-owned `/chat` client; API-only gateway (Accepted) |
+| [ADR-008](docs/adr/008-per-tenant-backend-routing.md) | Per-tenant backend routing — one process serving more than one person |
 
 ## License
 
