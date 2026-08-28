@@ -179,6 +179,20 @@ bash scripts/install-systemd.sh
 sudo systemctl enable --now whisper-relay
 ```
 
+### Co-located instances (two people, one checkout)
+
+Running a second instance from the same checkout (e.g. a second unit for another
+person on the same host, per [ADR-008](docs/adr/008-per-tenant-backend-routing.md))
+is supported, but give each unit its own `WorkingDirectory=` — a distinct
+directory per instance (a second clone, or a bind mount) rather than pointing
+both at the same repo path. `Settings()` reads only the process environment by
+default (see `VOICE_GATEWAY_DOTENV` above), so each instance's own
+`EnvironmentFile=` is authoritative regardless of `WorkingDirectory` — but a
+shared directory commonly also holds a `.env` symlink for local dev, and two
+instances sharing one `WorkingDirectory` share that file's presence too. A
+distinct `WorkingDirectory` per instance removes the ambiguity entirely (issue
+#46).
+
 ## Documentation
 
 **Contributing / AI agents:** start with [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md).

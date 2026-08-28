@@ -20,6 +20,13 @@ from voice_gateway.turns import TurnPipeline
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
+@pytest.fixture(autouse=True)
+def _no_dotenv_fallback(monkeypatch: pytest.MonkeyPatch):
+    """Never read a real .env from the CWD during tests (#46) unless a test
+    explicitly opts in via VOICE_GATEWAY_DOTENV."""
+    monkeypatch.delenv("VOICE_GATEWAY_DOTENV", raising=False)
+
+
 class StubLifeOSClient:
     def __init__(self, answer: str = "Here is your answer.") -> None:
         self.answer = answer

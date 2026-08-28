@@ -2,13 +2,41 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+logger = logging.getLogger(__name__)
+
 _DEFAULT_DATA = Path.home() / ".local/share/whisper-relay"
 _DEFAULT_KOKORO_DIR = _DEFAULT_DATA / "tts/kokoro"
+
+# Opt-in for the dotenv fallback (issue #46). Two co-located instances can share
+# one checkout's WorkingDirectory — each systemd unit supplies its own
+# EnvironmentFile=, which populates the *process* environment directly, so
+# Settings sees those values either way. pydantic-settings' default dotenv
+# fallback instead resolves `./.env` relative to the CWD, which is shared
+# between such instances; on the live host that path is a symlink to one
+# operator's own env file, so a second instance whose own environment omits a
+# key would silently inherit the first operator's value for it. Dotenv is only
+# needed for a bare local-dev invocation with no EnvironmentFile= at all, so it
+# is opt-in rather than a default.
+_DOTENV_OPT_IN_VAR = "VOICE_GATEWAY_DOTENV"
+_DOTENV_PATH_VAR = "VOICE_GATEWAY_DOTENV_FILE"
+
+
+def _resolve_env_file() -> str | None:
+    """The dotenv path Settings() should read, or None to use process env only.
+
+    Read from `os.environ` at each Settings() construction (not baked into
+    model_config at class-definition time) so tests can toggle it per case.
+    """
+    if os.environ.get(_DOTENV_OPT_IN_VAR, "").strip().lower() not in {"1", "true", "yes"}:
+        return None
+    return os.environ.get(_DOTENV_PATH_VAR, ".env")
 
 
 class TenantBackend(BaseModel):
@@ -33,7 +61,13 @@ class TenantBackend(BaseModel):
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
+    model_config = SettingsConfigDict(extra="ignore", populate_by_name=True)
+
+    def __init__(self, **values: object) -> None:
+        # Resolved fresh on every construction rather than baked into
+        # model_config (issue #46) — see _resolve_env_file().
+        values.setdefault("_env_file", _resolve_env_file())
+        super().__init__(**values)
 
     host: str = Field(default="0.0.0.0", alias="VOICE_GATEWAY_HOST")
     port: int = Field(default=9788, alias="VOICE_GATEWAY_PORT")
@@ -95,4 +129,14 @@ class Settings(BaseSettings):
 
 
 def get_settings() -> Settings:
+    env_file = _resolve_env_file()
+    if env_file is not None:
+        logger.info(
+            "settings: dotenv fallback enabled (%s=1), reading %s", _DOTENV_OPT_IN_VAR, env_file
+        )
+    else:
+        logger.info(
+            "settings: process environment only — no dotenv fallback (set %s=1 to opt in)",
+            _DOTENV_OPT_IN_VAR,
+        )
     return Settings()
