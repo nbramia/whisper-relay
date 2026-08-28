@@ -6,7 +6,7 @@ import logging
 import os
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -39,6 +39,10 @@ def _resolve_env_file() -> str | None:
     return os.environ.get(_DOTENV_PATH_VAR, ".env")
 
 
+class SettingsError(RuntimeError):
+    """A required setting is missing or invalid. Raised at startup only."""
+
+
 class TenantBackend(BaseModel):
     """One tenant's backend targets, for a process serving more than one person (#40).
 
@@ -67,14 +71,45 @@ class Settings(BaseSettings):
         # Resolved fresh on every construction rather than baked into
         # model_config (issue #46) — see _resolve_env_file().
         values.setdefault("_env_file", _resolve_env_file())
-        super().__init__(**values)
+        try:
+            super().__init__(**values)
+        except ValidationError as exc:
+            # Both "the key is absent" (type "missing") and "the key is set to
+            # blank/whitespace" (the field_validator below, type "value_error")
+            # mean the same thing here: no usable LIFEOS_BASE_URL was given.
+            bad_lifeos_url = any(
+                err["loc"] and err["loc"][0] in {"LIFEOS_BASE_URL", "lifeos_base_url"}
+                for err in exc.errors()
+            )
+            if bad_lifeos_url:
+                raise SettingsError(
+                    "LIFEOS_BASE_URL is required and has no default (#49) — a "
+                    "same-host default risks silently answering as another "
+                    "operator's LifeOS. Set LIFEOS_BASE_URL in the environment."
+                ) from exc
+            raise
 
     host: str = Field(default="0.0.0.0", alias="VOICE_GATEWAY_HOST")
     port: int = Field(default=9788, alias="VOICE_GATEWAY_PORT")
     data_dir: Path = Field(default=_DEFAULT_DATA, alias="VOICE_GATEWAY_DATA_DIR")
 
-    lifeos_base_url: str = Field(default="http://127.0.0.1:8000", alias="LIFEOS_BASE_URL")
+    # Required, no default (#49): a same-host default would risk silently
+    # answering as another operator's LifeOS on a shared host — the same class
+    # of bug #41 fixed for agent/hermes. Both production instances set this
+    # explicitly already.
+    lifeos_base_url: str = Field(alias="LIFEOS_BASE_URL")
     lifeos_timeout_s: float = Field(default=300.0, alias="LIFEOS_TIMEOUT_S")
+
+    @field_validator("lifeos_base_url")
+    @classmethod
+    def _lifeos_base_url_not_blank(cls, v: str) -> str:
+        # A present-but-blank value (LIFEOS_BASE_URL= with nothing after it)
+        # is exactly as unusable as an absent one — reject it the same way,
+        # rather than letting an empty string quietly become the LifeOS
+        # client's base URL.
+        if not v.strip():
+            raise ValueError("LIFEOS_BASE_URL must not be blank")
+        return v
 
     # No same-host default: agent_backend_enabled defaults to True, and a backend
     # reachable by more than one person's deployment must never guess a loopback

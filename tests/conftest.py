@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+import _test_env  # noqa: F401 — sets LIFEOS_BASE_URL default before voice_gateway import (#49)
 from voice_gateway.adapters.lifeos import LifeOSResult
 from voice_gateway.adapters.stt import StubSTTAdapter
 from voice_gateway.adapters.text_backend import TextBackendRouter
@@ -18,6 +19,14 @@ from voice_gateway.storage import TurnStorage
 from voice_gateway.turns import TurnPipeline
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture(autouse=True)
+def _lifeos_base_url_default(monkeypatch: pytest.MonkeyPatch):
+    """LIFEOS_BASE_URL is required with no default (#49). Most tests exercise
+    something else entirely and shouldn't all need to set it individually;
+    tests for #49's own required-ness override or unset it explicitly."""
+    monkeypatch.setenv("LIFEOS_BASE_URL", "http://127.0.0.1:8000")
 
 
 @pytest.fixture(autouse=True)
