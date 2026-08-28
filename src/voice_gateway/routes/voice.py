@@ -187,7 +187,7 @@ async def voice_turn(
     model_override: str | None = Form(default=None),
 ) -> VoiceTurnResponse:
     pipeline = _get_pipeline(request)
-    text_backend_router = _resolve_text_backend_router(request)
+    tenant_id, text_backend_router = _resolve_tenant_and_router(request)
     raw, content_type, filename, conv_id, client_transcript = await _read_turn_upload(
         request, audio, transcript, conversation_id
     )
@@ -207,6 +207,7 @@ async def voice_turn(
             model_override=model,
             parse_handoff=_parse_handoff_enabled(request, backend_kind, pid, model),
             text_backend=text_backend_router,
+            tenant_id=tenant_id,
         )
     except TurnError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -335,12 +336,35 @@ async def get_clip_audio(turn_id: str, clip_id: str, request: Request) -> FileRe
 
 
 def _serve_clip(turn_id: str, clip_id: str, request: Request) -> FileResponse:
+    """Resolves the caller's tenant *before* touching storage (#50), the same
+    order cancel uses (#48): in multi-tenant mode, a missing or unrecognized
+    token 403s via `_resolve_tenant` before `turn_id` is even validated.
+
+    Single-tenant mode (`tenant_registry.enabled` is False) skips this block
+    entirely and falls straight through to the pre-#50 checks — byte-identical
+    to today for both running production instances.
+    """
+    registry: TenantRegistry = request.app.state.tenant_registry
+    storage = _get_storage(request)
+    # Token resolution happens even before `turn_id` is validated as a UUID —
+    # a missing/unrecognized token 403s regardless of what turn_id was asked for.
+    tenant_id = _resolve_tenant(request) if registry.enabled else None
+
     try:
         UUID(turn_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="turn not found") from exc
 
-    storage = _get_storage(request)
+    # A clip with no recorded tenant — single-tenant-written before a mode
+    # switch, or any other legacy clip — is never servable to anyone once
+    # multi-tenant mode is on: `read_tenant_id` returns None, which can never
+    # equal a resolved (always non-None) tenant_id, so it fails closed without
+    # a special case. Same disclosure as cancel: a mismatch gets 403 with the
+    # *same detail* as "doesn't exist", not a 404, so a caller holding a
+    # turn_id it doesn't own learns nothing new.
+    if registry.enabled and storage.read_tenant_id(turn_id) != tenant_id:
+        raise HTTPException(status_code=403, detail="audio not found")
+
     path: Path = storage.clip_path(turn_id, clip_id)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="audio not found")

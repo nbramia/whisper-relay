@@ -20,6 +20,30 @@ def test_write_and_read_meta(tmp_path):
     assert storage.read_meta(turn_id)["transcript"] == "hi"
 
 
+def test_write_and_read_tenant_id(tmp_path):
+    storage = TurnStorage(tmp_path)
+    turn_id = str(uuid4())
+    storage.write_tenant_id(turn_id, "alice")
+    assert storage.read_tenant_id(turn_id) == "alice"
+
+
+def test_read_tenant_id_none_when_never_written(tmp_path):
+    """Single-tenant mode, and any legacy turn predating this field (#50)."""
+    storage = TurnStorage(tmp_path)
+    turn_id = str(uuid4())
+    assert storage.read_tenant_id(turn_id) is None
+
+
+def test_write_tenant_id_none_is_a_no_op(tmp_path):
+    """Single-tenant mode always calls this with tenant_id=None — no file
+    should be created, so a single-tenant turn directory is unchanged (#50)."""
+    storage = TurnStorage(tmp_path)
+    turn_id = str(uuid4())
+    storage.write_tenant_id(turn_id, None)
+    assert not storage.turn_path(turn_id).exists()
+    assert storage.read_tenant_id(turn_id) is None
+
+
 def test_cleanup_expired(tmp_path):
     storage = TurnStorage(tmp_path, retention_hours=0)
     turn_id = str(uuid4())
