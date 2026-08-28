@@ -3,7 +3,7 @@
 
 import pytest
 
-from voice_gateway.config import Settings, SettingsError
+from voice_gateway.config import RequiredSettingError, Settings
 
 
 def test_default_voice_gateway_port_is_9788():
@@ -49,7 +49,7 @@ def test_lifeos_base_url_is_required(monkeypatch: pytest.MonkeyPatch):
     that's the exact #40 failure mode (a second instance silently answered by
     the first operator's LifeOS)."""
     monkeypatch.delenv("LIFEOS_BASE_URL", raising=False)
-    with pytest.raises(SettingsError, match="LIFEOS_BASE_URL"):
+    with pytest.raises(RequiredSettingError, match="LIFEOS_BASE_URL"):
         Settings(_env_file=None)
 
 
@@ -62,7 +62,7 @@ def test_lifeos_base_url_honours_env_override():
 def test_lifeos_base_url_blank_is_rejected_same_as_missing(blank):
     """LIFEOS_BASE_URL= (present but empty) is exactly as unusable as an
     absent value — it must not quietly become the LifeOS client's base URL."""
-    with pytest.raises(SettingsError, match="LIFEOS_BASE_URL"):
+    with pytest.raises(RequiredSettingError, match="LIFEOS_BASE_URL"):
         Settings(_env_file=None, LIFEOS_BASE_URL=blank)
 
 

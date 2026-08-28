@@ -296,6 +296,10 @@ def test_deploy_auto_detects_system_unit_and_uses_sudo(tmp_path):
     assert result.returncode == 0, result.stderr
     log = log_file.read_text()
     assert "sudo systemctl restart whisper-relay" in log
+    # N2: the fallback could equally mean "no user session bus reachable" as
+    # "this really is a system unit" — say so and name the escape hatch,
+    # rather than choosing system scope silently.
+    assert "--user" in result.stderr
 
 
 def test_deploy_explicit_user_flag_skips_auto_detection(tmp_path):
@@ -368,6 +372,58 @@ def test_deploy_service_env_var_supports_multiple_space_separated_units(tmp_path
     log = log_file.read_text()
     assert "systemctl --user restart whisper-relay" in log
     assert "systemctl --user restart whisper-relay-taylor" in log
+
+
+def test_deploy_reads_deploy_systemd_service_from_dotenv_file(tmp_path):
+    """N1: .env.example documents DEPLOY_SYSTEMD_SERVICE as a .env setting,
+    but deploy.sh never actually read .env — an operator following the docs
+    got only the single default unit restarted, silently missing the second
+    instance (the exact multi-instance gap #47 exists to close). Deliberately
+    no DEPLOY_SYSTEMD_SERVICE in the process environment: only the checkout's
+    own .env file supplies it here, the same way a real deploy would see it."""
+    repo = _init_repo_with_remote(tmp_path)
+    _push_second_commit(tmp_path)
+    (repo / ".env").write_text('DEPLOY_SYSTEMD_SERVICE="whisper-relay whisper-relay-taylor"\n')
+    bin_dir, log_file = _install_fake_systemctl(
+        tmp_path, user_units=("whisper-relay", "whisper-relay-taylor")
+    )
+    script = _install_deploy_script(repo)
+    env = _sanitized_env(PATH=f"{bin_dir}:{os.environ['PATH']}")
+    env.pop("DEPLOY_SYSTEMD_SERVICE", None)
+    assert "DEPLOY_SYSTEMD_SERVICE" not in env
+
+    result = subprocess.run([str(script)], cwd=repo, capture_output=True, text=True, env=env)
+
+    assert result.returncode == 0, result.stderr
+    log = log_file.read_text()
+    assert "systemctl --user restart whisper-relay" in log
+    assert "systemctl --user restart whisper-relay-taylor" in log
+
+
+def test_deploy_explicit_service_flag_still_wins_over_dotenv_file(tmp_path):
+    """--service on the command line must override DEPLOY_SYSTEMD_SERVICE
+    from .env, not merge with or lose to it."""
+    repo = _init_repo_with_remote(tmp_path)
+    _push_second_commit(tmp_path)
+    (repo / ".env").write_text('DEPLOY_SYSTEMD_SERVICE="whisper-relay whisper-relay-taylor"\n')
+    bin_dir, log_file = _install_fake_systemctl(tmp_path, user_units=("only-this-one",))
+    script = _install_deploy_script(repo)
+    env = _sanitized_env(PATH=f"{bin_dir}:{os.environ['PATH']}")
+    env.pop("DEPLOY_SYSTEMD_SERVICE", None)
+
+    result = subprocess.run(
+        [str(script), "--service", "only-this-one"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    log = log_file.read_text()
+    assert "systemctl --user restart only-this-one" in log
+    assert "whisper-relay-taylor" not in log
+    assert "restart whisper-relay\n" not in log and "restart whisper-relay " not in log
 
 
 def test_deploy_fetches_from_the_branchs_configured_remote(tmp_path):

@@ -39,8 +39,14 @@ def _resolve_env_file() -> str | None:
     return os.environ.get(_DOTENV_PATH_VAR, ".env")
 
 
-class SettingsError(RuntimeError):
-    """A required setting is missing or invalid. Raised at startup only."""
+class RequiredSettingError(RuntimeError):
+    """A required setting is missing or invalid. Raised at startup only.
+
+    Named to avoid colliding with `pydantic_settings.SettingsError` (a
+    different, unrelated exception from the library `Settings` inherits
+    from) — an `except SettingsError` written against this module could
+    otherwise silently catch the wrong one depending on import order.
+    """
 
 
 class TenantBackend(BaseModel):
@@ -88,7 +94,7 @@ class Settings(BaseSettings):
                 for err in exc.errors()
             )
             if bad_lifeos_url:
-                raise SettingsError(
+                raise RequiredSettingError(
                     "LIFEOS_BASE_URL is required and has no default (#49) — a "
                     "same-host default risks silently answering as another "
                     "operator's LifeOS. Set LIFEOS_BASE_URL in the environment."

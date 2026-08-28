@@ -33,6 +33,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# Load operator settings the same way install-systemd*.sh do. DEPLOY_SYSTEMD_SERVICE
+# is documented in .env.example as a .env setting, but this script never read .env at
+# all — an operator who set it there (and nowhere else) got the single default
+# "whisper-relay" restarted with no error, the exact multi-instance gap #47 exists to
+# close. Explicit --service flags below still win over whatever this loads.
+ENV_FILE="${DEPLOY_ENV_FILE:-$ROOT/.env}"
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+fi
+
 SERVICES=()
 SCOPE="auto"
 DO_RESTART=true
@@ -137,6 +150,11 @@ restart_one() {
       scope="user"
     else
       scope="system"
+      # This also fires when there's simply no reachable user session bus
+      # (e.g. an unattended shell) rather than $service genuinely being a
+      # system unit — that would silently restart nothing this operator
+      # meant to restart. Say so instead of choosing system scope quietly.
+      err "could not confirm '$service' as a systemctl --user unit (no user session bus, or it isn't a user unit) — falling back to sudo systemctl. Pass --user explicitly if it should be a user unit."
     fi
   fi
   if [[ "$scope" == "user" ]]; then
