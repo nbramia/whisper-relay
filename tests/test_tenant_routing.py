@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from pydantic import ValidationError
 
 from conftest import StubLifeOSClient
 from voice_gateway.adapters.stt import StubSTTAdapter
@@ -130,6 +131,68 @@ def test_build_tenant_registry_rejects_duplicate_token(tmp_path):
     )
     with pytest.raises(TenantConfigError):
         build_tenant_registry(settings)
+
+
+def test_build_tenant_registry_rejects_non_ascii_token(tmp_path):
+    """A configured token that TenantRegistry.resolve() could never match
+    anyway (it rejects non-ASCII candidates, see below) should fail startup,
+    not silently configure an unreachable tenant (#48)."""
+    settings = Settings(
+        data_dir=tmp_path,
+        tenant_backends={
+            "taylor": TenantBackend(tenant_token="tok\xffen", lifeos_base_url="http://x"),
+        },
+    )
+    with pytest.raises(TenantConfigError, match="non-ASCII"):
+        build_tenant_registry(settings)
+
+
+def test_build_tenant_registry_warns_on_empty_tenant_table(tmp_path, caplog):
+    """TENANT_BACKENDS_JSON={} is distinct from unset: present but empty is
+    likely a truncated or malformed edit, and should warn even though it still
+    behaves as single-tenant (#48)."""
+    settings = Settings(data_dir=tmp_path, tenant_backends={})
+
+    with caplog.at_level("WARNING"):
+        registry = build_tenant_registry(settings)
+
+    assert registry.enabled is False
+    assert any("TENANT_BACKENDS_JSON" in record.message for record in caplog.records)
+
+
+def test_build_tenant_registry_no_warning_when_unset(tmp_path, caplog):
+    """The default, unconfigured case — every production instance today —
+    must not warn on every startup."""
+    settings = Settings(data_dir=tmp_path)
+
+    with caplog.at_level("WARNING"):
+        build_tenant_registry(settings)
+
+    assert not any("TENANT_BACKENDS_JSON" in record.message for record in caplog.records)
+
+
+def test_tenant_backend_rejects_unknown_key():
+    """extra='forbid' (#48): a misspelled key must fail loudly instead of being
+    silently dropped — e.g. `lifeos_base_ur` would otherwise leave
+    lifeos_base_url unset with no indication why."""
+    with pytest.raises(ValidationError):
+        TenantBackend(
+            tenant_token="secret-a",
+            lifeos_base_ur="http://127.0.0.1:8001",  # typo, missing required field too
+        )
+
+
+def test_registry_resolve_rejects_non_ascii_token(tmp_path):
+    """A raw non-ASCII header byte used to raise inside hmac.compare_digest,
+    surfacing as a 500 instead of the usual 403 for an unrecognized token (#48)."""
+    settings = Settings(
+        data_dir=tmp_path,
+        tenant_backends={
+            "taylor": TenantBackend(tenant_token="secret-a", lifeos_base_url="http://x"),
+        },
+    )
+    registry = build_tenant_registry(settings)
+    assert registry.resolve("\xff\xfe") is None
 
 
 # --- routes/voice.py wiring: end-to-end over the ASGI app -----------------------
@@ -271,9 +334,11 @@ async def test_multi_tenant_stream_endpoint_also_rejects_unknown_token(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_cancel_is_best_effort_when_tenant_unresolved(tmp_path, caplog):
-    """Local cancel must still succeed even if the upstream tenant can't be
-    resolved — cancel is best-effort by design (issue #37's doc comment)."""
+async def test_cancel_rejects_missing_token_before_touching_registry(tmp_path):
+    """#48: cancel used to check the turn registry before any tenant check at
+    all, so a caller with no token (or another tenant's token) could cancel
+    another tenant's in-flight turn by id. Tenant resolution must now happen
+    first, exactly like a voice turn — no fallback, no best-effort here."""
     app, _default_stub = _make_app(tmp_path)
     app.state.tenant_registry = TenantRegistry(
         {
@@ -282,13 +347,93 @@ async def test_cancel_is_best_effort_when_tenant_unresolved(tmp_path, caplog):
             )
         }
     )
-    app.state.turn_registry.start("turn-under-test", "lifeos")
+    app.state.turn_registry.start("turn-under-test", "lifeos", tenant_id="tenant-a")
 
     transport = ASGITransport(app=app)
-    with caplog.at_level("WARNING"):
-        async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            resp = await ac.post("/api/voice/turn/turn-under-test/cancel")
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.post("/api/voice/turn/turn-under-test/cancel")
+
+    assert resp.status_code == 403
+    # Nothing was cancelled or forwarded — the turn is still active.
+    assert app.state.turn_registry.backend_for("turn-under-test", "tenant-a") == "lifeos"
+
+
+@pytest.mark.asyncio
+async def test_cancel_rejects_cross_tenant_turn_id(tmp_path):
+    """The review's exact repro: tenant A's token presented against tenant B's
+    turn id must 403 and forward nothing to either backend."""
+    app, _default_stub = _make_app(tmp_path)
+    stub_a = StubLifeOSClient("alice's backend")
+    stub_b = StubLifeOSClient("bob's backend")
+    app.state.tenant_registry = TenantRegistry(
+        {
+            "alice-token": ResolvedTenant(tenant_id="alice", router=TextBackendRouter(stub_a)),
+            "bob-token": ResolvedTenant(tenant_id="bob", router=TextBackendRouter(stub_b)),
+        }
+    )
+    app.state.turn_registry.start("bobs-turn", "lifeos", tenant_id="bob")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.post(
+            "/api/voice/turn/bobs-turn/cancel",
+            headers={TENANT_TOKEN_HEADER: "alice-token"},
+        )
+
+    assert resp.status_code == 403
+    # Bob's turn is still active — alice's request never reached it, and
+    # neither backend received an upstream cancel call.
+    assert app.state.turn_registry.backend_for("bobs-turn", "bob") == "lifeos"
+    assert stub_a.last_question is None
+    assert stub_b.last_question is None
+
+
+@pytest.mark.asyncio
+async def test_cancel_succeeds_for_the_owning_tenant(tmp_path):
+    app, _default_stub = _make_app(tmp_path)
+    app.state.tenant_registry = TenantRegistry(
+        {
+            "alice-token": ResolvedTenant(
+                tenant_id="alice", router=TextBackendRouter(StubLifeOSClient())
+            ),
+        }
+    )
+    cancel_event = app.state.turn_registry.start("alices-turn", "lifeos", tenant_id="alice")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.post(
+            "/api/voice/turn/alices-turn/cancel",
+            headers={TENANT_TOKEN_HEADER: "alice-token"},
+        )
 
     assert resp.status_code == 200
     assert resp.json() == {"cancelled": True}
-    assert any("tenant" in record.message.lower() for record in caplog.records)
+    assert cancel_event.is_set()
+
+
+@pytest.mark.asyncio
+async def test_cancel_non_ascii_token_header_rejected_not_500(tmp_path):
+    """A raw non-ASCII header byte used to raise inside hmac.compare_digest,
+    surfacing as a 500 instead of the usual 403 for an unrecognized token (#48)."""
+    app, _default_stub = _make_app(tmp_path)
+    app.state.tenant_registry = TenantRegistry(
+        {
+            "alice-token": ResolvedTenant(
+                tenant_id="alice", router=TextBackendRouter(StubLifeOSClient())
+            ),
+        }
+    )
+    app.state.turn_registry.start("turn-under-test", "lifeos", tenant_id="alice")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # httpx rejects a non-ASCII `str` header outright; pass raw bytes to
+        # reach the server the way a raw non-ASCII header byte actually would
+        # (Starlette decodes header bytes as latin-1).
+        resp = await ac.post(
+            "/api/voice/turn/turn-under-test/cancel",
+            headers={TENANT_TOKEN_HEADER: b"\xff\xfe"},
+        )
+
+    assert resp.status_code == 403

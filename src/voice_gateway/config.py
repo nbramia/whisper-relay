@@ -6,7 +6,7 @@ import logging
 import os
 from pathlib import Path
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,13 @@ class TenantBackend(BaseModel):
     present to be routed here; it is never derived from a client-suppliable field.
     Agent/Hermes are available for this tenant only when their URL is set — there
     is no separate enabled flag, and no loopback default (same rationale as #41).
+
+    `extra="forbid"`: a misspelled key in TENANT_BACKENDS_JSON must fail startup
+    loudly rather than being silently dropped (#48) — e.g. `lifeos_base_ur` would
+    otherwise leave `lifeos_base_url` unset with no indication why.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     tenant_token: str
     lifeos_base_url: str
