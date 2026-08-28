@@ -76,6 +76,7 @@ class TurnPipeline:
         model_override: str | None = None,
         parse_handoff: bool = True,
         text_backend: TextBackendRouter | None = None,
+        tenant_id: str | None = None,
     ) -> VoiceTurnResponse:
         response: VoiceTurnResponse | None = None
         async for event in self.run_turn_stream(
@@ -89,6 +90,7 @@ class TurnPipeline:
             model_override=model_override,
             parse_handoff=parse_handoff,
             text_backend=text_backend,
+            tenant_id=tenant_id,
         ):
             if event["type"] == "done":
                 response = VoiceTurnResponse(**event["data"])
@@ -115,6 +117,10 @@ class TurnPipeline:
         tenant_id: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         turn_id = str(uuid4())
+        # Tagged before any clip is written (#50) — including status audio from
+        # a turn that errors before `write_meta` ever runs — so the audio routes
+        # can enforce tenant scoping against every clip a turn ever produces.
+        self._storage.write_tenant_id(turn_id, tenant_id)
         cancel = (
             registry.start(turn_id, normalize_backend(backend), tenant_id=tenant_id)
             if registry
