@@ -107,6 +107,10 @@ async def test_cancelled_detailed_request_keeps_engine_lock_until_thread_finishe
     await asyncio.sleep(0)
 
     assert first.done() is False
+    first.cancel()
+    await asyncio.sleep(0)
+    assert first.done() is False
+    assert adapter._lock.locked() is True
     assert (
         await adapter.try_transcribe_detailed(
             b"\x00\x00",

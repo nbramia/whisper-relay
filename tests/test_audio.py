@@ -108,6 +108,9 @@ async def test_cancelled_decoder_waits_for_bounded_process_work(monkeypatch):
     await asyncio.sleep(0)
 
     assert task.done() is False
+    task.cancel()
+    await asyncio.sleep(0)
+    assert task.done() is False
     release.set()
     with pytest.raises(asyncio.CancelledError):
         await task

@@ -152,6 +152,16 @@ class Settings(BaseSettings):
     stt_timeout_s: float = Field(default=120.0, alias="VOICE_GATEWAY_STT_TIMEOUT_S")
     raw_stt_token: str | None = Field(default=None, alias="VOICE_GATEWAY_RAW_STT_TOKEN")
 
+    @field_validator("raw_stt_token")
+    @classmethod
+    def _raw_stt_token_ascii(cls, value: str | None) -> str | None:
+        # ASGI exposes header bytes as latin-1 text, while compare_digest rejects
+        # non-ASCII str values. Reject an unusable configured secret at startup;
+        # non-ASCII request bytes continue to fail closed as ordinary 401s.
+        if value and not value.isascii():
+            raise ValueError("VOICE_GATEWAY_RAW_STT_TOKEN must contain only ASCII characters")
+        return value
+
     tts_backend: str = Field(default="kokoro", alias="TTS_BACKEND")
     kokoro_model_path: Path = Field(
         default=_DEFAULT_KOKORO_DIR / "kokoro-v1.0.onnx", alias="KOKORO_MODEL_PATH"

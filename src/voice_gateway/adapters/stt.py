@@ -5,12 +5,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from contextlib import suppress
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 import numpy as np
 
+from voice_gateway.async_utils import await_bounded_task
 from voice_gateway.audio import pcm_to_float32
 from voice_gateway.config import Settings
 
@@ -276,12 +276,7 @@ class LinuxWhisperSTTAdapter:
     async def _wait_for_blocking_operation(self, operation, *args, **kwargs):
         """Do not release engine ownership merely because the caller cancelled."""
         task = asyncio.create_task(asyncio.to_thread(operation, *args, **kwargs))
-        try:
-            return await asyncio.shield(task)
-        except asyncio.CancelledError:
-            with suppress(Exception):
-                await asyncio.shield(task)
-            raise
+        return await await_bounded_task(task)
 
 
 class StubSTTAdapter:

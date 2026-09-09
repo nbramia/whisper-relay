@@ -6,11 +6,12 @@ import asyncio
 import subprocess
 import tempfile
 from collections.abc import Callable
-from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+
+from voice_gateway.async_utils import await_bounded_task
 
 _EXT_BY_MIME: dict[str, str] = {
     "audio/webm": ".webm",
@@ -180,9 +181,4 @@ async def normalize_audio_off_event_loop(
             timeout_s=timeout_s,
         )
     )
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError:
-        with suppress(Exception):
-            await asyncio.shield(task)
-        raise
+    return await await_bounded_task(task)

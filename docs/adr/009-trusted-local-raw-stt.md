@@ -106,6 +106,24 @@ service is a separate process and no strict GPU-priority guarantee is claimed.
 - Linux-whisper owns worker lifecycle behavior. The relay consumes its public
   engine and error behavior rather than copying an STT engine.
 
+## Implementation verification — 2026-09-09
+
+The post-review upstream pin is
+[`e43203c`](https://github.com/nbramia/linux-whisper/commit/e43203c). Its
+GPU-free process tests exercise startup hang, blocked audio writes, inference
+hang, forced exit, malformed frames, terminate-to-kill escalation, reaping, and
+replacement-worker recovery. Successful result frames must reproduce the
+worker's joined segment text, reject boolean timestamps, and permit final
+segment padding of at most one second beyond measured audio duration.
+
+Relay regressions additionally prove that repeated cancellation retains decoder
+and STT ownership until bounded work completes, multipart limit errors close
+parser-owned upload files, and the polished legacy transcription route decodes
+off the event loop. An ffmpeg-gated integration test sends a generated M4A
+through the real multipart and decoder path while a synthetic STT adapter keeps
+the test independent of models and GPUs. Raw STT tokens are ASCII-only at
+configuration time; non-ASCII request header bytes fail closed with `401`.
+
 ## Related Documents
 
 - [ADR-001](001-voice-transport-layer.md) — transport-only boundary

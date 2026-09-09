@@ -1,7 +1,7 @@
 # Testing standards — whisper-relay
 
 **Status:** Complete
-**Last Updated:** 2026-06-18
+**Last Updated:** 2026-09-09
 **Owner:** whisper-relay
 
 Adapted from [Development principles § Testing philosophy](../../development-principles.md).
@@ -73,6 +73,12 @@ tests/
 | `adapters/stt.py` | Medium — mock `STTEngine` + `PolishPipeline` |
 | `routes/voice.py` | Medium — HTTP status mapping |
 | `adapters/tts.py` | Medium — markdown strip, file output |
+
+Bounded subprocess tests use real synthetic child processes, never a model or
+GPU, and cover blocked reads/writes, exit, malformed frames, terminate/kill/reap,
+and recovery. Cancellation ownership tests issue repeated cancellation while
+blocking work remains live; a single cancellation does not prove that a lock or
+admission semaphore survives the complete operation.
 
 ### Change-impact rule
 

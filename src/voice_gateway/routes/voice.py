@@ -14,6 +14,8 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.datastructures import UploadFile as StarletteUploadFile
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.formparsers import MultiPartException
 
 from voice_gateway.adapters.lifeos import (
     handoff_override_for_model,
@@ -47,10 +49,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/voice", tags=["voice"])
 _RAW_STT_TOKEN_HEADER = "X-Voice-Gateway-Token"
 _UPLOAD_READ_CHUNK_BYTES = 64 * 1024
+_RAW_UPLOAD_TOO_LARGE_MESSAGE = "raw STT upload exceeds configured limit"
 
 
-class RawUploadTooLargeError(Exception):
-    """Raised by the detailed route's receive wrapper before multipart spooling."""
+class RawUploadTooLargeError(MultiPartException):
+    """Abort multipart receive while preserving parser-owned tempfile cleanup."""
+
+    def __init__(self) -> None:
+        # Starlette's multipart parser closes every temporary upload when it
+        # catches MultiPartException. Request then wraps it as an HTTPException,
+        # whose private marker is mapped back to the public 413 below.
+        super().__init__(_RAW_UPLOAD_TOO_LARGE_MESSAGE)
 
 
 def _personas_cache(request: Request) -> list[dict]:
@@ -264,12 +273,14 @@ async def voice_transcribe(
         raise HTTPException(status_code=413, detail="upload too large")
 
     try:
-        normalized = normalize_audio(
+        normalized = await normalize_audio_off_event_loop(
             raw,
             content_type=audio.content_type,
             filename=audio.filename,
             ffmpeg_bin=settings.ffmpeg_bin,
             max_duration_s=settings.max_audio_duration_s,
+            timeout_s=settings.decode_timeout_s,
+            normalizer=normalize_audio,
         )
     except AudioNormalizationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -308,8 +319,10 @@ async def voice_transcribe_detailed(
         form = None
         try:
             form = await request.form()
-        except RawUploadTooLargeError:
-            return _raw_error(413, "upload_too_large", retryable=False)
+        except StarletteHTTPException as exc:
+            if exc.detail == _RAW_UPLOAD_TOO_LARGE_MESSAGE:
+                return _raw_error(413, "upload_too_large", retryable=False)
+            return _raw_error(400, "invalid_request", retryable=False)
         except Exception:
             return _raw_error(400, "invalid_request", retryable=False)
         try:
