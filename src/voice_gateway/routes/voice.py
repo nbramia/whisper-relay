@@ -31,7 +31,12 @@ from voice_gateway.adapters.text_backend import (
     capabilities_for,
     normalize_backend,
 )
-from voice_gateway.audio import AudioNormalizationError, NormalizedAudio, normalize_audio
+from voice_gateway.audio import (
+    AudioNormalizationError,
+    NormalizedAudio,
+    normalize_audio,
+    normalize_audio_off_event_loop,
+)
 from voice_gateway.cancel import TurnRegistry, TurnTenantMismatchError
 from voice_gateway.models import VoiceTurnResponse
 from voice_gateway.tenants import TENANT_TOKEN_HEADER, TenantRegistry
@@ -42,6 +47,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/voice", tags=["voice"])
 _RAW_STT_TOKEN_HEADER = "X-Voice-Gateway-Token"
 _UPLOAD_READ_CHUNK_BYTES = 64 * 1024
+
+
+class RawUploadTooLargeError(Exception):
+    """Raised by the detailed route's receive wrapper before multipart spooling."""
 
 
 def _personas_cache(request: Request) -> list[dict]:
@@ -184,15 +193,29 @@ async def _read_bounded_upload(
     return b"".join(chunks)
 
 
-def _validate_declared_raw_upload_size(request: Request) -> JSONResponse | None:
+def _install_raw_upload_limit(request: Request) -> JSONResponse | None:
     declared_size = request.headers.get("content-length")
-    if declared_size is None:
-        return _raw_error(411, "length_required", retryable=False)
-    try:
-        if int(declared_size) > request.app.state.settings.max_upload_bytes:
-            return _raw_error(413, "upload_too_large", retryable=False)
-    except ValueError:
-        return _raw_error(400, "invalid_request", retryable=False)
+    if declared_size is not None:
+        try:
+            if int(declared_size) > request.app.state.settings.max_upload_bytes:
+                return _raw_error(413, "upload_too_large", retryable=False)
+        except ValueError:
+            return _raw_error(400, "invalid_request", retryable=False)
+
+    original_receive = request._receive
+    received = 0
+    limit = request.app.state.settings.max_upload_bytes
+
+    async def receive_limited() -> dict:
+        nonlocal received
+        message = await original_receive()
+        if message["type"] == "http.request":
+            received += len(message.get("body", b""))
+            if received > limit:
+                raise RawUploadTooLargeError
+        return message
+
+    request._receive = receive_limited
     return None
 
 
@@ -207,8 +230,7 @@ async def _normalize_detailed_upload(
     audio: UploadFile,
 ) -> NormalizedAudio:
     settings = request.app.state.settings
-    return await asyncio.to_thread(
-        normalize_audio,
+    return await normalize_audio_off_event_loop(
         raw,
         content_type=audio.content_type,
         filename=audio.filename,
@@ -275,61 +297,68 @@ async def voice_transcribe_detailed(
     rejected = _authorize_raw_stt(request)
     if rejected is not None:
         return rejected
-    rejected = _validate_declared_raw_upload_size(request)
-    if rejected is not None:
-        return rejected
-    try:
-        form = await request.form()
-    except Exception:
-        return _raw_error(400, "invalid_request", retryable=False)
-    if any(name in form for name in {"language", "prompt", "transcript"}):
-        return _raw_error(400, "invalid_request", retryable=False)
-    audio = form.get("audio")
-    if not isinstance(audio, StarletteUploadFile) or not audio.filename:
-        return _raw_error(400, "invalid_request", retryable=False)
-    include_polished_value = str(form.get("include_polished", "false")).lower()
-    if include_polished_value not in {"true", "false"}:
-        return _raw_error(400, "invalid_request", retryable=False)
-    include_polished = include_polished_value == "true"
-    if not _is_supported_detailed_media_type(audio.content_type):
-        return _raw_error(415, "unsupported_media", retryable=False)
-
     admission: asyncio.Semaphore = request.app.state.raw_stt_admission
     if admission.locked():
         return _raw_error(429, "busy", retryable=True, retry_after_s=1)
 
     async with admission:
-        total_started = time.monotonic()
-        raw = await _read_bounded_upload(request, audio)
-        if isinstance(raw, JSONResponse):
-            return raw
-        decode_started = time.monotonic()
+        rejected = _install_raw_upload_limit(request)
+        if rejected is not None:
+            return rejected
+        form = None
         try:
-            normalized = await _normalize_detailed_upload(request, raw, audio)
-        except AudioNormalizationError as exc:
-            if "timed out" in str(exc):
-                return _raw_error(504, "deadline_exceeded", retryable=True, retry_after_s=1)
-            return _raw_error(422, "invalid_audio", retryable=False)
-        decode_ms = int((time.monotonic() - decode_started) * 1000)
-
-        stt = _get_pipeline(request).stt
-        if not isinstance(stt, DetailedSTTAdapter):
-            logger.error("detailed STT unavailable: adapter lacks raw-result capability")
-            return _raw_error(503, "engine_unavailable", retryable=True, retry_after_s=1)
-        try:
-            result = await stt.try_transcribe_detailed(
-                normalized.pcm_bytes,
-                turn_id=str(uuid4()),
-                include_polished=include_polished,
-            )
-        except STTDeadlineExceededError:
-            return _raw_error(504, "deadline_exceeded", retryable=True, retry_after_s=1)
-        except STTUnavailableError:
-            logger.warning("detailed STT unavailable")
-            return _raw_error(503, "engine_unavailable", retryable=True, retry_after_s=1)
+            form = await request.form()
+        except RawUploadTooLargeError:
+            return _raw_error(413, "upload_too_large", retryable=False)
         except Exception:
-            logger.exception("detailed STT failed")
-            return _raw_error(503, "engine_unavailable", retryable=True, retry_after_s=1)
+            return _raw_error(400, "invalid_request", retryable=False)
+        try:
+            if any(name in form for name in {"language", "prompt", "transcript"}):
+                return _raw_error(400, "invalid_request", retryable=False)
+            audio = form.get("audio")
+            if not isinstance(audio, StarletteUploadFile) or not audio.filename:
+                return _raw_error(400, "invalid_request", retryable=False)
+            include_polished_value = str(form.get("include_polished", "false")).lower()
+            if include_polished_value not in {"true", "false"}:
+                return _raw_error(400, "invalid_request", retryable=False)
+            include_polished = include_polished_value == "true"
+            if not _is_supported_detailed_media_type(audio.content_type):
+                return _raw_error(415, "unsupported_media", retryable=False)
+
+            total_started = time.monotonic()
+            raw = await _read_bounded_upload(request, audio)
+            if isinstance(raw, JSONResponse):
+                return raw
+            decode_started = time.monotonic()
+            try:
+                normalized = await _normalize_detailed_upload(request, raw, audio)
+            except AudioNormalizationError as exc:
+                if "timed out" in str(exc):
+                    return _raw_error(504, "deadline_exceeded", retryable=True, retry_after_s=1)
+                return _raw_error(422, "invalid_audio", retryable=False)
+            decode_ms = int((time.monotonic() - decode_started) * 1000)
+
+            stt = _get_pipeline(request).stt
+            if not isinstance(stt, DetailedSTTAdapter):
+                logger.error("detailed STT unavailable: adapter lacks raw-result capability")
+                return _raw_error(503, "engine_unavailable", retryable=True, retry_after_s=1)
+            try:
+                result = await stt.try_transcribe_detailed(
+                    normalized.pcm_bytes,
+                    turn_id=str(uuid4()),
+                    include_polished=include_polished,
+                    require_bounded_deadline=True,
+                )
+            except STTDeadlineExceededError:
+                return _raw_error(504, "deadline_exceeded", retryable=True, retry_after_s=1)
+            except STTUnavailableError:
+                logger.warning("detailed STT unavailable")
+                return _raw_error(503, "engine_unavailable", retryable=True, retry_after_s=1)
+            except Exception:
+                logger.exception("detailed STT failed")
+                return _raw_error(503, "engine_unavailable", retryable=True, retry_after_s=1)
+        finally:
+            await form.close()
 
     if result is None:
         return _raw_error(429, "busy", retryable=True, retry_after_s=1)

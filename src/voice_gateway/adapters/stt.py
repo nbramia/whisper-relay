@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -22,6 +23,10 @@ class STTUnavailableError(RuntimeError):
 
 class STTDeadlineExceededError(STTUnavailableError):
     """The engine invalidated its worker after a bounded IPC deadline."""
+
+
+class STTDeadlineUnsupportedError(STTUnavailableError):
+    """The configured engine cannot provide the raw route's kill-safe deadline."""
 
 
 @runtime_checkable
@@ -67,6 +72,7 @@ class DetailedSTTAdapter(Protocol):
         *,
         turn_id: str,
         include_polished: bool,
+        require_bounded_deadline: bool = False,
     ) -> DetailedTranscription: ...
 
     async def try_transcribe_detailed(
@@ -75,6 +81,7 @@ class DetailedSTTAdapter(Protocol):
         *,
         turn_id: str,
         include_polished: bool,
+        require_bounded_deadline: bool = False,
     ) -> DetailedTranscription | None: ...
 
 
@@ -110,7 +117,12 @@ class LinuxWhisperSTTAdapter:
             self._polish = PolishPipeline(self._config.polish)
         logger.info("linux-whisper STT engine loaded: %s", self._config.stt.backend)
 
-    def _transcribe_raw_sync(self, pcm_bytes: bytes) -> DetailedTranscription:
+    def _transcribe_raw_sync(
+        self,
+        pcm_bytes: bytes,
+        *,
+        require_bounded_deadline: bool = False,
+    ) -> DetailedTranscription:
         self._ensure_loaded()
         assert self._engine is not None
         assert self._config is not None
@@ -135,6 +147,8 @@ class LinuxWhisperSTTAdapter:
         audio_bytes = audio_int16.tobytes()
 
         set_timeout = getattr(self._engine, "set_operation_timeout", None)
+        if require_bounded_deadline and not callable(set_timeout):
+            raise STTDeadlineUnsupportedError("configured STT engine has no bounded deadline")
         if callable(set_timeout):
             set_timeout(self._settings.stt_timeout_s)
         try:
@@ -176,8 +190,12 @@ class LinuxWhisperSTTAdapter:
         pcm_bytes: bytes,
         *,
         include_polished: bool,
+        require_bounded_deadline: bool = False,
     ) -> DetailedTranscription:
-        raw = self._transcribe_raw_sync(pcm_bytes)
+        raw = self._transcribe_raw_sync(
+            pcm_bytes,
+            require_bounded_deadline=require_bounded_deadline,
+        )
         if not include_polished or not raw.raw_text or self._polish is None:
             return raw
 
@@ -204,12 +222,14 @@ class LinuxWhisperSTTAdapter:
         *,
         turn_id: str,
         include_polished: bool,
+        require_bounded_deadline: bool = False,
     ) -> DetailedTranscription:
         async with self._lock:
-            return await asyncio.to_thread(
+            return await self._wait_for_blocking_operation(
                 self._transcribe_detailed_sync,
                 pcm_bytes,
                 include_polished=include_polished,
+                require_bounded_deadline=require_bounded_deadline,
             )
 
     async def try_transcribe_detailed(
@@ -218,14 +238,16 @@ class LinuxWhisperSTTAdapter:
         *,
         turn_id: str,
         include_polished: bool,
+        require_bounded_deadline: bool = False,
     ) -> DetailedTranscription | None:
         if self._lock.locked():
             return None
         async with self._lock:
-            return await asyncio.to_thread(
+            return await self._wait_for_blocking_operation(
                 self._transcribe_detailed_sync,
                 pcm_bytes,
                 include_polished=include_polished,
+                require_bounded_deadline=require_bounded_deadline,
             )
 
     async def transcribe(self, pcm_bytes: bytes, *, turn_id: str) -> tuple[str, dict[str, int]]:
@@ -249,7 +271,17 @@ class LinuxWhisperSTTAdapter:
     async def warmup(self) -> None:
         async with self._lock:
             self._is_ready = False
-            await asyncio.to_thread(self._warmup_sync)
+            await self._wait_for_blocking_operation(self._warmup_sync)
+
+    async def _wait_for_blocking_operation(self, operation, *args, **kwargs):
+        """Do not release engine ownership merely because the caller cancelled."""
+        task = asyncio.create_task(asyncio.to_thread(operation, *args, **kwargs))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            with suppress(Exception):
+                await asyncio.shield(task)
+            raise
 
 
 class StubSTTAdapter:
@@ -269,6 +301,7 @@ class StubSTTAdapter:
         *,
         turn_id: str,
         include_polished: bool,
+        require_bounded_deadline: bool = False,
     ) -> DetailedTranscription:
         return DetailedTranscription(
             raw_text=self.transcript,
@@ -290,6 +323,7 @@ class StubSTTAdapter:
         *,
         turn_id: str,
         include_polished: bool,
+        require_bounded_deadline: bool = False,
     ) -> DetailedTranscription | None:
         return await self.transcribe_detailed(
             pcm_bytes,

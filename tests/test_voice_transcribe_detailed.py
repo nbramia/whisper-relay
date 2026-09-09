@@ -42,6 +42,7 @@ class DetailedSTT:
         *,
         turn_id: str,
         include_polished: bool,
+        require_bounded_deadline: bool = False,
     ) -> DetailedTranscription:
         return DetailedTranscription(
             raw_text="remind me to water the plants",
@@ -64,6 +65,7 @@ class DetailedSTT:
         *,
         turn_id: str,
         include_polished: bool,
+        require_bounded_deadline: bool = False,
     ) -> DetailedTranscription | None:
         return await self.transcribe_detailed(
             pcm_bytes,
@@ -79,6 +81,7 @@ class DeadlineSTT(DetailedSTT):
         *,
         turn_id: str,
         include_polished: bool,
+        require_bounded_deadline: bool = False,
     ) -> DetailedTranscription | None:
         raise STTDeadlineExceededError("synthetic deadline")
 
@@ -106,7 +109,9 @@ async def _client(tmp_path, stt: DetailedSTT, *, token: str | None = "synthetic-
 async def test_detailed_transcribe_returns_raw_provenance_without_polish(tmp_path):
     app, client = await _client(tmp_path, DetailedSTT())
     async with client:
-        with patch("voice_gateway.routes.voice.normalize_audio", return_value=_normalized()):
+        with patch(
+            "voice_gateway.routes.voice.normalize_audio_off_event_loop", return_value=_normalized()
+        ):
             response = await client.post(
                 "/api/voice/transcribe/detailed",
                 headers={"X-Voice-Gateway-Token": "synthetic-token"},
@@ -164,7 +169,9 @@ async def test_detailed_transcribe_marks_empty_raw_result_as_no_speech(tmp_path)
 
     _app, client = await _client(tmp_path, SilenceSTT())
     async with client:
-        with patch("voice_gateway.routes.voice.normalize_audio", return_value=_normalized()):
+        with patch(
+            "voice_gateway.routes.voice.normalize_audio_off_event_loop", return_value=_normalized()
+        ):
             response = await client.post(
                 "/api/voice/transcribe/detailed",
                 headers={"X-Voice-Gateway-Token": "synthetic-token"},
@@ -185,7 +192,9 @@ async def test_detailed_transcribe_marks_empty_raw_result_as_no_speech(tmp_path)
 async def test_detailed_transcribe_only_includes_polish_when_requested(tmp_path):
     _app, client = await _client(tmp_path, DetailedSTT())
     async with client:
-        with patch("voice_gateway.routes.voice.normalize_audio", return_value=_normalized()):
+        with patch(
+            "voice_gateway.routes.voice.normalize_audio_off_event_loop", return_value=_normalized()
+        ):
             response = await client.post(
                 "/api/voice/transcribe/detailed",
                 headers={"X-Voice-Gateway-Token": "synthetic-token"},
@@ -202,7 +211,9 @@ async def test_detailed_transcribe_only_includes_polish_when_requested(tmp_path)
 async def test_detailed_transcribe_maps_reaped_engine_deadline_to_retryable_504(tmp_path):
     _app, client = await _client(tmp_path, DeadlineSTT())
     async with client:
-        with patch("voice_gateway.routes.voice.normalize_audio", return_value=_normalized()):
+        with patch(
+            "voice_gateway.routes.voice.normalize_audio_off_event_loop", return_value=_normalized()
+        ):
             response = await client.post(
                 "/api/voice/transcribe/detailed",
                 headers={"X-Voice-Gateway-Token": "synthetic-token"},
@@ -238,7 +249,7 @@ async def test_detailed_transcribe_rejects_oversized_declared_upload_before_deco
     app, client = await _client(tmp_path, DetailedSTT())
     app.state.settings.max_upload_bytes = 1
     async with client:
-        with patch("voice_gateway.routes.voice.normalize_audio") as normalize:
+        with patch("voice_gateway.routes.voice.normalize_audio_off_event_loop") as normalize:
             response = await client.post(
                 "/api/voice/transcribe/detailed",
                 headers={"X-Voice-Gateway-Token": "synthetic-token"},
@@ -262,3 +273,79 @@ async def test_detailed_transcribe_rejects_client_transcript_field(tmp_path):
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "invalid_request"
+
+
+@pytest.mark.asyncio
+async def test_detailed_transcribe_rejects_unauthorized_request_before_receive(tmp_path):
+    app, _client_instance = await _client(tmp_path, DetailedSTT())
+    receive_calls = 0
+    sent: list[dict] = []
+
+    async def receive() -> dict:
+        nonlocal receive_calls
+        receive_calls += 1
+        return {"type": "http.request", "body": b"unread", "more_body": False}
+
+    async def send(message: dict) -> None:
+        sent.append(message)
+
+    await app(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/voice/transcribe/detailed",
+            "raw_path": b"/api/voice/transcribe/detailed",
+            "query_string": b"",
+            "headers": [],
+            "client": ("127.0.0.1", 12345),
+            "server": ("test", 80),
+        },
+        receive,
+        send,
+    )
+
+    assert receive_calls == 0
+    assert sent[0]["status"] == 401
+
+
+@pytest.mark.asyncio
+async def test_detailed_transcribe_enforces_chunked_limit_during_multipart_parse(tmp_path):
+    app, _client_instance = await _client(tmp_path, DetailedSTT())
+    app.state.settings.max_upload_bytes = 8
+    sent: list[dict] = []
+    chunks = iter([b"--x\r\n" + b"a" * 32])
+
+    async def receive() -> dict:
+        try:
+            return {"type": "http.request", "body": next(chunks), "more_body": False}
+        except StopIteration:
+            return {"type": "http.disconnect"}
+
+    async def send(message: dict) -> None:
+        sent.append(message)
+
+    await app(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/voice/transcribe/detailed",
+            "raw_path": b"/api/voice/transcribe/detailed",
+            "query_string": b"",
+            "headers": [
+                (b"x-voice-gateway-token", b"synthetic-token"),
+                (b"content-type", b"multipart/form-data; boundary=x"),
+            ],
+            "client": ("127.0.0.1", 12345),
+            "server": ("test", 80),
+        },
+        receive,
+        send,
+    )
+
+    assert sent[0]["status"] == 413

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import asyncio
+import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 from linux_whisper.stt.engine import TranscriptResult, TranscriptSegment
 
-from voice_gateway.adapters.stt import LinuxWhisperSTTAdapter, STTDeadlineExceededError
+from voice_gateway.adapters.stt import (
+    DetailedTranscription,
+    LinuxWhisperSTTAdapter,
+    STTDeadlineExceededError,
+)
 
 
 def _adapter(tmp_settings) -> LinuxWhisperSTTAdapter:
@@ -68,3 +74,47 @@ def test_upstream_reaped_worker_deadline_maps_to_relay_deadline(tmp_settings):
         adapter._transcribe_raw_sync(b"\x00\x00" * 8_000)
 
     engine.reset.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_detailed_request_keeps_engine_lock_until_thread_finishes(tmp_settings):
+    adapter = _adapter(tmp_settings)
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_transcription(*args, **kwargs) -> DetailedTranscription:
+        started.set()
+        assert release.wait(timeout=1)
+        return DetailedTranscription(
+            raw_text="synthetic",
+            segments=(),
+            language=None,
+            confidence=None,
+            duration_ms=1,
+            backend="whisper-cpp",
+            model="synthetic-model",
+            library="linux-whisper",
+            revision=None,
+            stt_ms=1,
+        )
+
+    adapter._transcribe_detailed_sync = blocking_transcription
+    first = asyncio.create_task(
+        adapter.transcribe_detailed(b"\x00\x00", turn_id="one", include_polished=False)
+    )
+    await asyncio.to_thread(started.wait, 1)
+    first.cancel()
+    await asyncio.sleep(0)
+
+    assert first.done() is False
+    assert (
+        await adapter.try_transcribe_detailed(
+            b"\x00\x00",
+            turn_id="two",
+            include_polished=False,
+        )
+    ) is None
+
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await first

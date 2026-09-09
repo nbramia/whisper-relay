@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import tempfile
+from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,6 +22,27 @@ _EXT_BY_MIME: dict[str, str] = {
     "audio/aac": ".aac",
     "audio/mpeg": ".mp3",
     "application/octet-stream": ".m4a",
+}
+
+_INPUT_FORMAT_BY_MIME: dict[str, str] = {
+    "audio/webm": "matroska",
+    "audio/ogg": "ogg",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/mp4": "mov",
+    "audio/x-m4a": "mov",
+    "audio/aac": "aac",
+    "audio/mpeg": "mp3",
+    "application/octet-stream": "mov",
+}
+_INPUT_FORMAT_BY_EXTENSION: dict[str, str] = {
+    ".webm": "matroska",
+    ".ogg": "ogg",
+    ".wav": "wav",
+    ".m4a": "mov",
+    ".mp4": "mov",
+    ".aac": "aac",
+    ".mp3": "mp3",
 }
 
 
@@ -43,6 +67,18 @@ def _guess_extension(content_type: str | None, filename: str | None) -> str:
     return ".webm"
 
 
+def _input_format(content_type: str | None, filename: str | None) -> str:
+    if content_type:
+        media_type = content_type.split(";", 1)[0].strip().lower()
+        if media_type in _INPUT_FORMAT_BY_MIME:
+            return _INPUT_FORMAT_BY_MIME[media_type]
+    if filename:
+        suffix = Path(filename).suffix.lower()
+        if suffix in _INPUT_FORMAT_BY_EXTENSION:
+            return _INPUT_FORMAT_BY_EXTENSION[suffix]
+    raise AudioNormalizationError("unsupported audio type")
+
+
 def normalize_audio(
     data: bytes,
     *,
@@ -56,6 +92,7 @@ def normalize_audio(
         raise AudioNormalizationError("empty audio upload")
 
     ext = _guess_extension(content_type, filename)
+    input_format = _input_format(content_type, filename)
     with tempfile.TemporaryDirectory() as tmp:
         inp = Path(tmp) / f"input{ext}"
         inp.write_bytes(data)
@@ -68,6 +105,13 @@ def normalize_audio(
         cmd = [
             ffmpeg_bin,
             "-y",
+            "-nostdin",
+            "-v",
+            "error",
+            "-protocol_whitelist",
+            "file,pipe",
+            "-f",
+            input_format,
             "-i",
             str(inp),
             "-t",
@@ -84,7 +128,7 @@ def normalize_audio(
             proc = subprocess.run(
                 cmd,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
                 check=False,
                 timeout=timeout_s,
             )
@@ -94,8 +138,7 @@ def normalize_audio(
             raise AudioNormalizationError("audio decoding timed out") from exc
 
         if proc.returncode != 0:
-            stderr = proc.stderr.decode(errors="replace")[:500]
-            raise AudioNormalizationError(f"ffmpeg failed: {stderr}")
+            raise AudioNormalizationError("ffmpeg failed to decode audio")
 
         if not output.exists() or output.stat().st_size == 0:
             raise AudioNormalizationError("ffmpeg produced empty output")
@@ -113,3 +156,33 @@ def normalize_audio(
 def pcm_to_float32(pcm_bytes: bytes) -> np.ndarray:
     samples = np.frombuffer(pcm_bytes, dtype=np.int16)
     return (samples.astype(np.float32) / 32767.0).copy()
+
+
+async def normalize_audio_off_event_loop(
+    data: bytes,
+    *,
+    content_type: str | None = None,
+    filename: str | None = None,
+    ffmpeg_bin: str = "ffmpeg",
+    max_duration_s: float = 120.0,
+    timeout_s: float = 30.0,
+    normalizer: Callable[..., NormalizedAudio] | None = None,
+) -> NormalizedAudio:
+    """Wait for a self-bounded decoder even if the request task is cancelled."""
+    task = asyncio.create_task(
+        asyncio.to_thread(
+            normalizer or normalize_audio,
+            data,
+            content_type=content_type,
+            filename=filename,
+            ffmpeg_bin=ffmpeg_bin,
+            max_duration_s=max_duration_s,
+            timeout_s=timeout_s,
+        )
+    )
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        with suppress(Exception):
+            await asyncio.shield(task)
+        raise

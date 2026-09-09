@@ -51,11 +51,12 @@ remain `null` when unavailable rather than being inferred. `engine.backend` and
 ### Limits, failures, and recovery
 
 The route checks declared and streamed upload bytes against
-`VOICE_GATEWAY_MAX_UPLOAD_BYTES`; it normalizes in a worker thread through
-ffmpeg to headerless 16 kHz mono signed-16-bit PCM. Ffmpeg writes bounded raw
-PCM, has a process deadline (`VOICE_GATEWAY_DECODE_TIMEOUT_S`), and is reaped by
-the subprocess runner on expiry. `VOICE_GATEWAY_MAX_AUDIO_DURATION_S` caps
-decoded duration.
+`VOICE_GATEWAY_MAX_UPLOAD_BYTES` before multipart spooling; it normalizes in a
+worker thread through ffmpeg to headerless 16 kHz mono signed-16-bit PCM. The
+decoder forces an approved audio demuxer, permits only local file/pipe protocols,
+does not read stdin, writes bounded raw PCM, and has a process deadline
+(`VOICE_GATEWAY_DECODE_TIMEOUT_S`) that reaps ffmpeg on expiry.
+`VOICE_GATEWAY_MAX_AUDIO_DURATION_S` caps decoded duration.
 
 The warm adapter owns one linux-whisper engine and serializes all inference.
 Startup starts and resets a no-audio stream, which loads the GPU worker/model
@@ -67,7 +68,6 @@ thread as proof that the actual inference stopped.
 
 | Status | Code | Retryable | Meaning |
 |--------|------|-----------|---------|
-| 411 | `length_required` | no | The endpoint refuses an unbounded request body |
 | 413 | `upload_too_large` | no | Declared or streamed upload exceeds the cap |
 | 415 | `unsupported_media` | no | The upload is not audio or permitted binary media |
 | 422 | `invalid_audio` | no | Malformed, empty, or duration-limited audio |
@@ -86,7 +86,7 @@ worker dump. Operational logs use identifiers and timing only.
 The detailed endpoint exposes readiness through normal startup state; health
 checks never run an inference. The upstream dependency is linux-whisper issue
 [#56](https://github.com/nbramia/linux-whisper/issues/56). The tested compatible
-revision is [`b9aa133`](https://github.com/nbramia/linux-whisper/commit/b9aa1331bcbe9ba0fec50a80450348770f9af1f4);
+revision is [`9e99cc0`](https://github.com/nbramia/linux-whisper/commit/9e99cc022a422faba6e51a1e6d8d66345018846f);
 deployments must use that revision or a later compatible release before enabling
 the raw token.
 
