@@ -12,6 +12,7 @@
 | **Third backend (Hermes) + context capabilities** | [adr/006](adr/006-hermes-third-text-backend.md) | Extends adr/004; per-backend persona/modality/model table |
 | **Cancelling a turn (barge-in, hangup)** | [adr/007](adr/007-explicit-turn-cancellation.md) | Explicit `/api/chat/cancel`; LifeOS #611/#616 context |
 | **LifeOS-owned client + reverse proxy** | [adr/005](adr/005-lifeos-owned-chat-client.md) | Accepted; LifeOS `/chat` is the client |
+| **Trusted-local raw STT capture interface** | [adr/009](adr/009-trusted-local-raw-stt.md) | Pebble provenance, limits, retry, and boundary |
 | TTS (Kokoro, `bm_george`, env vars) | [adr/003](adr/003-kokoro-tts-bm-george.md) | Do not duplicate config elsewhere |
 | Engineering process (generic) | [development-principles.md](development-principles.md) | AGENTS.md links; no project-specific duplication |
 | Python / test standards | [specs/standards/](specs/standards/) | — |
@@ -30,6 +31,7 @@
 | [005](adr/005-lifeos-owned-chat-client.md) | LifeOS-owned `/chat` client (Accepted) |
 | [006](adr/006-hermes-third-text-backend.md) | Hermes as a third text backend (Accepted) |
 | [007](adr/007-explicit-turn-cancellation.md) | Explicit turn cancellation (Accepted) |
+| [009](adr/009-trusted-local-raw-stt.md) | Trusted-local raw STT capture interface (Accepted) |
 
 Rules: [adr/AGENTS.md](adr/AGENTS.md)
 

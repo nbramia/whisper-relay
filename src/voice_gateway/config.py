@@ -101,7 +101,7 @@ class Settings(BaseSettings):
                 ) from exc
             raise
 
-    host: str = Field(default="0.0.0.0", alias="VOICE_GATEWAY_HOST")
+    host: str = Field(default="127.0.0.1", alias="VOICE_GATEWAY_HOST")
     port: int = Field(default=9788, alias="VOICE_GATEWAY_PORT")
     data_dir: Path = Field(default=_DEFAULT_DATA, alias="VOICE_GATEWAY_DATA_DIR")
 
@@ -148,6 +148,9 @@ class Settings(BaseSettings):
     ffmpeg_bin: str = Field(default="ffmpeg", alias="FFMPEG_BIN")
     max_upload_bytes: int = Field(default=25 * 1024 * 1024, alias="VOICE_GATEWAY_MAX_UPLOAD_BYTES")
     max_audio_duration_s: float = Field(default=120.0, alias="VOICE_GATEWAY_MAX_AUDIO_DURATION_S")
+    decode_timeout_s: float = Field(default=30.0, alias="VOICE_GATEWAY_DECODE_TIMEOUT_S")
+    stt_timeout_s: float = Field(default=120.0, alias="VOICE_GATEWAY_STT_TIMEOUT_S")
+    raw_stt_token: str | None = Field(default=None, alias="VOICE_GATEWAY_RAW_STT_TOKEN")
 
     tts_backend: str = Field(default="kokoro", alias="TTS_BACKEND")
     kokoro_model_path: Path = Field(

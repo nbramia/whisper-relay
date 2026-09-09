@@ -11,6 +11,10 @@ def test_default_voice_gateway_port_is_9788():
     assert settings.port == 9788
 
 
+def test_default_voice_gateway_host_is_loopback():
+    assert _code_defaults().host == "127.0.0.1"
+
+
 def _code_defaults() -> Settings:
     """Settings as a fresh install sees them, ignoring this machine's .env."""
     return Settings(_env_file=None, LIFEOS_BASE_URL="http://example.invalid")

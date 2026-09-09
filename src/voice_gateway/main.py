@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -130,6 +131,9 @@ def create_app(
         ]
     }
     app.state.turn_registry = TurnRegistry()
+    # Raw capture has one admitted request across decoding and recognition.
+    # Voice turns retain their established STT serialization behavior.
+    app.state.raw_stt_admission = asyncio.Semaphore(1)
 
     app.include_router(health.router)
     app.include_router(voice.router)

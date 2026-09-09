@@ -11,7 +11,7 @@ whisper-relay sits between LifeOS `/chat` and local services on your Linux works
 | Component | Role |
 |-----------|------|
 | **LifeOS `/chat`** | Unified text + voice client (phone bookmark over Tailscale HTTPS) |
-| **whisper-relay** (this repo) | Voice transport API — normalize audio, STT, text backend, TTS |
+| **whisper-relay** (this repo) | Voice transport API — normalize audio, STT, text backend, TTS; trusted-local raw STT for Pebble ([ADR-009](docs/adr/009-trusted-local-raw-stt.md)) |
 | **linux-whisper** | Local STT + polish (same pipeline as desktop dictation) |
 | **LifeOS** (LifeOS mode) | Orchestrator — tools, memory, planning, engine handoffs |
 | **voice-adapter** (Agent mode) | OpenClaw HTTP bridge in agents repo — session + escalation ([ADR-004](docs/adr/004-dual-text-backends.md)) |
@@ -37,12 +37,14 @@ flowchart TB
   end
 
   lw["linux-whisper"]
+  pebble["Pebble receiver\ntrusted-local raw STT"]
   orch["LifeOS<br/>POST /api/ask/stream"]
   agent["voice-adapter<br/>:8100"]
   hermes["Hermes<br/>:8790"]
 
   phone --> chat
   proxy -->|"voice turn"| norm
+  pebble -->|"raw recognition"| norm
   tts -->|"SSE + audio"| proxy
   stt -.-> lw
   router -->|"backend=lifeos"| orch
@@ -110,6 +112,13 @@ VOICE_GATEWAY_URL=http://127.0.0.1:9788
 ```
 
 whisper-relay listens on `127.0.0.1:9788` by default (`VOICE_GATEWAY_PORT=9788`). Direct browser → whisper-relay calls with CORS are a documented fallback only, not the primary path.
+
+### Trusted-local raw STT
+
+Pebble's receiver may call the additive local detailed-STT route; it is not a
+public webhook and does not replace existing polished voice contracts. Configure
+the separate token outside Git and follow the boundary, retry, and deployment
+requirements in [ADR-009](docs/adr/009-trusted-local-raw-stt.md).
 
 ### Agent mode smoke test
 
@@ -210,6 +219,7 @@ distinct `WorkingDirectory` per instance removes the ambiguity entirely (issue
 | [ADR-006](docs/adr/006-hermes-third-text-backend.md) | Hermes backend + per-backend context capabilities |
 | [ADR-005](docs/adr/005-lifeos-owned-chat-client.md) | LifeOS-owned `/chat` client; API-only gateway (Accepted) |
 | [ADR-008](docs/adr/008-per-tenant-backend-routing.md) | Per-tenant backend routing — one process serving more than one person |
+| [ADR-009](docs/adr/009-trusted-local-raw-stt.md) | Trusted-local raw STT capture interface |
 
 ## License
 

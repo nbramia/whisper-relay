@@ -160,12 +160,14 @@ class TurnPipeline:
                 check_cancelled()
                 t0 = time.monotonic()
                 try:
-                    normalized = normalize_audio(
+                    normalized = await asyncio.to_thread(
+                        normalize_audio,
                         audio_bytes,
                         content_type=content_type,
                         filename=filename,
                         ffmpeg_bin=self._settings.ffmpeg_bin,
                         max_duration_s=self._settings.max_audio_duration_s,
+                        timeout_s=self._settings.decode_timeout_s,
                     )
                 except AudioNormalizationError as exc:
                     raise TurnError(str(exc), 400) from exc

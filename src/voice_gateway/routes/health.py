@@ -15,6 +15,13 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.get("/health/stt")
+async def stt_health(request: Request) -> dict[str, bool]:
+    """Read startup readiness only; this endpoint never invokes recognition."""
+    stt = request.app.state.pipeline.stt
+    return {"ready": bool(getattr(stt, "is_ready", False))}
+
+
 async def _probe(client: Any) -> bool | None:
     """Reachability for a configured backend client, or None when unavailable."""
     if client is None or not hasattr(client, "health_check"):

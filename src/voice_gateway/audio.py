@@ -50,6 +50,7 @@ def normalize_audio(
     filename: str | None = None,
     ffmpeg_bin: str = "ffmpeg",
     max_duration_s: float = 120.0,
+    timeout_s: float = 30.0,
 ) -> NormalizedAudio:
     if not data:
         raise AudioNormalizationError("empty audio upload")
@@ -58,33 +59,50 @@ def normalize_audio(
     with tempfile.TemporaryDirectory() as tmp:
         inp = Path(tmp) / f"input{ext}"
         inp.write_bytes(data)
+        output = Path(tmp) / "normalized.s16le"
+        # Headerless PCM is deliberate: WAV permits arbitrary chunks before
+        # ``data`` so slicing a presumed 44-byte header can send container
+        # bytes to recognition. ``-t`` bounds expansion of hostile compressed
+        # uploads before we read the decoded result into memory.
+        decode_limit_s = max_duration_s + 1 / 16_000
         cmd = [
             ffmpeg_bin,
             "-y",
             "-i",
             str(inp),
+            "-t",
+            str(decode_limit_s),
             "-ar",
             "16000",
             "-ac",
             "1",
             "-f",
-            "wav",
-            "pipe:1",
+            "s16le",
+            str(output),
         ]
         try:
-            proc = subprocess.run(cmd, capture_output=True, check=False)
+            proc = subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=timeout_s,
+            )
         except FileNotFoundError as exc:
             raise AudioNormalizationError(f"ffmpeg not found: {ffmpeg_bin}") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise AudioNormalizationError("audio decoding timed out") from exc
 
         if proc.returncode != 0:
             stderr = proc.stderr.decode(errors="replace")[:500]
             raise AudioNormalizationError(f"ffmpeg failed: {stderr}")
 
-        wav = proc.stdout
-        if len(wav) < 44:
+        if not output.exists() or output.stat().st_size == 0:
             raise AudioNormalizationError("ffmpeg produced empty output")
 
-        pcm = wav[44:]
+        pcm = output.read_bytes()
+        if len(pcm) % 2:
+            raise AudioNormalizationError("ffmpeg produced invalid PCM")
         duration_s = len(pcm) / (16_000 * 2)
         if duration_s > max_duration_s:
             raise AudioNormalizationError(f"audio exceeds {max_duration_s}s limit")
