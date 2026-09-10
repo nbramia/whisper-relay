@@ -1,3 +1,5 @@
+import asyncio
+import threading
 from unittest.mock import patch
 
 import pytest
@@ -89,3 +91,41 @@ async def test_transcribe_leaves_turn_registry_untouched(app, client):
 
     assert resp.status_code == 200
     assert registry._active == {}
+
+
+@pytest.mark.asyncio
+async def test_transcribe_decode_does_not_block_unrelated_async_requests(client):
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_normalize(*args, **kwargs):
+        started.set()
+        assert release.wait(timeout=1)
+        return _normalized()
+
+    loop = asyncio.get_running_loop()
+    began = loop.time()
+    timer = threading.Timer(0.5, release.set)
+    timer.start()
+    try:
+        with patch("voice_gateway.routes.voice.normalize_audio", blocking_normalize):
+            transcribe = asyncio.create_task(
+                client.post(
+                    "/api/voice/transcribe",
+                    files={"audio": ("clip.webm", b"fake-audio", "audio/webm")},
+                )
+            )
+            assert await asyncio.to_thread(started.wait, 1)
+
+            health = await client.get("/health")
+            unrelated_latency = loop.time() - began
+            release.set()
+            response = await transcribe
+    finally:
+        release.set()
+        timer.cancel()
+
+    assert health.status_code == 200
+    assert unrelated_latency < 0.25
+    assert response.status_code == 200
+    assert response.json() == {"transcript": "remind me to call mom"}

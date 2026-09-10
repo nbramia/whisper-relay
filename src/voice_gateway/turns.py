@@ -18,7 +18,11 @@ from voice_gateway.adapters.text_backend import (
     normalize_backend,
 )
 from voice_gateway.adapters.tts import TTSAdapter
-from voice_gateway.audio import AudioNormalizationError, normalize_audio
+from voice_gateway.audio import (
+    AudioNormalizationError,
+    normalize_audio,
+    normalize_audio_off_event_loop,
+)
 from voice_gateway.cancel import TurnRegistry
 from voice_gateway.config import Settings
 from voice_gateway.logging import log_event
@@ -160,12 +164,14 @@ class TurnPipeline:
                 check_cancelled()
                 t0 = time.monotonic()
                 try:
-                    normalized = normalize_audio(
+                    normalized = await normalize_audio_off_event_loop(
                         audio_bytes,
                         content_type=content_type,
                         filename=filename,
                         ffmpeg_bin=self._settings.ffmpeg_bin,
                         max_duration_s=self._settings.max_audio_duration_s,
+                        timeout_s=self._settings.decode_timeout_s,
+                        normalizer=normalize_audio,
                     )
                 except AudioNormalizationError as exc:
                     raise TurnError(str(exc), 400) from exc

@@ -11,6 +11,7 @@ Architecture Decision Records for whisper-relay — **append-only** decision jou
 | [003](003-kokoro-tts-bm-george.md) | Kokoro TTS — `bm_george` voice |
 | [004](004-dual-text-backends.md) | Dual text backends (LifeOS + Agent) |
 | [005](005-lifeos-owned-chat-client.md) | LifeOS-owned `/chat` client (Accepted) |
+| [009](009-trusted-local-raw-stt.md) | Trusted-local raw STT capture interface (Accepted) |
 
 ## Key Principles
 

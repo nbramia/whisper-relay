@@ -2,6 +2,7 @@
 #49 — LIFEOS_BASE_URL required)."""
 
 import pytest
+from pydantic import ValidationError
 
 from voice_gateway.config import RequiredSettingError, Settings
 
@@ -9,6 +10,19 @@ from voice_gateway.config import RequiredSettingError, Settings
 def test_default_voice_gateway_port_is_9788():
     settings = Settings.model_validate({"lifeos_base_url": "http://example.invalid"})
     assert settings.port == 9788
+
+
+def test_default_voice_gateway_host_is_loopback():
+    assert _code_defaults().host == "127.0.0.1"
+
+
+def test_raw_stt_token_rejects_non_ascii_configuration():
+    with pytest.raises(ValidationError, match="must contain only ASCII"):
+        Settings(
+            _env_file=None,
+            LIFEOS_BASE_URL="http://example.invalid",
+            VOICE_GATEWAY_RAW_STT_TOKEN="synthetic-tökén",
+        )
 
 
 def _code_defaults() -> Settings:

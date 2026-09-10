@@ -2,18 +2,30 @@
 
 from __future__ import annotations
 
+import asyncio
+import hmac
+import ipaddress
 import json
 import logging
+import time
 from pathlib import Path
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from starlette.datastructures import UploadFile as StarletteUploadFile
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.formparsers import MultiPartException
 
 from voice_gateway.adapters.lifeos import (
     handoff_override_for_model,
     normalize_model_override,
     persona_supports_handoff,
+)
+from voice_gateway.adapters.stt import (
+    DetailedSTTAdapter,
+    STTDeadlineExceededError,
+    STTUnavailableError,
 )
 from voice_gateway.adapters.text_backend import (
     TextBackendRouter,
@@ -21,7 +33,12 @@ from voice_gateway.adapters.text_backend import (
     capabilities_for,
     normalize_backend,
 )
-from voice_gateway.audio import AudioNormalizationError, normalize_audio
+from voice_gateway.audio import (
+    AudioNormalizationError,
+    NormalizedAudio,
+    normalize_audio,
+    normalize_audio_off_event_loop,
+)
 from voice_gateway.cancel import TurnRegistry, TurnTenantMismatchError
 from voice_gateway.models import VoiceTurnResponse
 from voice_gateway.tenants import TENANT_TOKEN_HEADER, TenantRegistry
@@ -30,6 +47,19 @@ from voice_gateway.turns import TurnError, TurnPipeline
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/voice", tags=["voice"])
+_RAW_STT_TOKEN_HEADER = "X-Voice-Gateway-Token"
+_UPLOAD_READ_CHUNK_BYTES = 64 * 1024
+_RAW_UPLOAD_TOO_LARGE_MESSAGE = "raw STT upload exceeds configured limit"
+
+
+class RawUploadTooLargeError(MultiPartException):
+    """Abort multipart receive while preserving parser-owned tempfile cleanup."""
+
+    def __init__(self) -> None:
+        # Starlette's multipart parser closes every temporary upload when it
+        # catches MultiPartException. Request then wraps it as an HTTPException,
+        # whose private marker is mapped back to the public 413 below.
+        super().__init__(_RAW_UPLOAD_TOO_LARGE_MESSAGE)
 
 
 def _personas_cache(request: Request) -> list[dict]:
@@ -107,6 +137,118 @@ def _resolve_tenant(request: Request) -> str | None:
     return tenant_id
 
 
+def _raw_error(
+    status_code: int,
+    code: str,
+    *,
+    retryable: bool,
+    retry_after_s: int | None = None,
+) -> JSONResponse:
+    headers = {"Retry-After": str(retry_after_s)} if retry_after_s is not None else None
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "error": {
+                "code": code,
+                "message": "voice transcription unavailable",
+                "retryable": retryable,
+            }
+        },
+        headers=headers,
+    )
+
+
+def _is_loopback_request(request: Request) -> bool:
+    client = request.client
+    if client is None:
+        return False
+    try:
+        return ipaddress.ip_address(client.host).is_loopback
+    except ValueError:
+        return False
+
+
+def _authorize_raw_stt(request: Request) -> JSONResponse | None:
+    """Enforce the capture endpoint's independent trusted-local boundary."""
+    token = request.app.state.settings.raw_stt_token
+    if not token:
+        # An unset token means no capture consumer is configured. Hiding the
+        # route avoids accidentally publishing a useful unauthenticated probe.
+        return _raw_error(404, "not_found", retryable=False)
+    supplied = request.headers.get(_RAW_STT_TOKEN_HEADER)
+    try:
+        authorized = bool(supplied) and hmac.compare_digest(token, supplied)
+    except TypeError:
+        authorized = False
+    if not _is_loopback_request(request) or not authorized:
+        return _raw_error(401, "unauthorized", retryable=False)
+    return None
+
+
+async def _read_bounded_upload(
+    request: Request,
+    audio: UploadFile,
+) -> bytes | JSONResponse:
+    settings = request.app.state.settings
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await audio.read(_UPLOAD_READ_CHUNK_BYTES):
+        total += len(chunk)
+        if total > settings.max_upload_bytes:
+            return _raw_error(413, "upload_too_large", retryable=False)
+        chunks.append(chunk)
+    if total == 0:
+        return _raw_error(422, "invalid_audio", retryable=False)
+    return b"".join(chunks)
+
+
+def _install_raw_upload_limit(request: Request) -> JSONResponse | None:
+    declared_size = request.headers.get("content-length")
+    if declared_size is not None:
+        try:
+            if int(declared_size) > request.app.state.settings.max_upload_bytes:
+                return _raw_error(413, "upload_too_large", retryable=False)
+        except ValueError:
+            return _raw_error(400, "invalid_request", retryable=False)
+
+    original_receive = request._receive
+    received = 0
+    limit = request.app.state.settings.max_upload_bytes
+
+    async def receive_limited() -> dict:
+        nonlocal received
+        message = await original_receive()
+        if message["type"] == "http.request":
+            received += len(message.get("body", b""))
+            if received > limit:
+                raise RawUploadTooLargeError
+        return message
+
+    request._receive = receive_limited
+    return None
+
+
+def _is_supported_detailed_media_type(content_type: str | None) -> bool:
+    media_type = (content_type or "").split(";", 1)[0].strip().lower()
+    return media_type.startswith("audio/") or media_type == "application/octet-stream"
+
+
+async def _normalize_detailed_upload(
+    request: Request,
+    raw: bytes,
+    audio: UploadFile,
+) -> NormalizedAudio:
+    settings = request.app.state.settings
+    return await normalize_audio_off_event_loop(
+        raw,
+        content_type=audio.content_type,
+        filename=audio.filename,
+        ffmpeg_bin=settings.ffmpeg_bin,
+        max_duration_s=settings.max_audio_duration_s,
+        timeout_s=settings.decode_timeout_s,
+    )
+
+
 @router.post("/transcribe")
 async def voice_transcribe(
     request: Request,
@@ -131,12 +273,14 @@ async def voice_transcribe(
         raise HTTPException(status_code=413, detail="upload too large")
 
     try:
-        normalized = normalize_audio(
+        normalized = await normalize_audio_off_event_loop(
             raw,
             content_type=audio.content_type,
             filename=audio.filename,
             ffmpeg_bin=settings.ffmpeg_bin,
             max_duration_s=settings.max_audio_duration_s,
+            timeout_s=settings.decode_timeout_s,
+            normalizer=normalize_audio,
         )
     except AudioNormalizationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -149,6 +293,122 @@ async def voice_transcribe(
         raise HTTPException(status_code=503, detail="STT engine unavailable") from exc
 
     return {"transcript": transcript}
+
+
+@router.post("/transcribe/detailed")
+async def voice_transcribe_detailed(
+    request: Request,
+) -> JSONResponse:
+    """Trusted-local raw STT for capture consumers.
+
+    This is deliberately separate from the legacy polished wake-check route:
+    it creates no turn, storage record, text-backend call, TTS output, or
+    tenancy context. Callers cannot provide a transcript or recognition prompt.
+    """
+    rejected = _authorize_raw_stt(request)
+    if rejected is not None:
+        return rejected
+    admission: asyncio.Semaphore = request.app.state.raw_stt_admission
+    if admission.locked():
+        return _raw_error(429, "busy", retryable=True, retry_after_s=1)
+
+    async with admission:
+        rejected = _install_raw_upload_limit(request)
+        if rejected is not None:
+            return rejected
+        form = None
+        try:
+            form = await request.form()
+        except StarletteHTTPException as exc:
+            if exc.detail == _RAW_UPLOAD_TOO_LARGE_MESSAGE:
+                return _raw_error(413, "upload_too_large", retryable=False)
+            return _raw_error(400, "invalid_request", retryable=False)
+        except Exception:
+            return _raw_error(400, "invalid_request", retryable=False)
+        try:
+            if any(name in form for name in {"language", "prompt", "transcript"}):
+                return _raw_error(400, "invalid_request", retryable=False)
+            audio = form.get("audio")
+            if not isinstance(audio, StarletteUploadFile) or not audio.filename:
+                return _raw_error(400, "invalid_request", retryable=False)
+            include_polished_value = str(form.get("include_polished", "false")).lower()
+            if include_polished_value not in {"true", "false"}:
+                return _raw_error(400, "invalid_request", retryable=False)
+            include_polished = include_polished_value == "true"
+            if not _is_supported_detailed_media_type(audio.content_type):
+                return _raw_error(415, "unsupported_media", retryable=False)
+
+            total_started = time.monotonic()
+            raw = await _read_bounded_upload(request, audio)
+            if isinstance(raw, JSONResponse):
+                return raw
+            decode_started = time.monotonic()
+            try:
+                normalized = await _normalize_detailed_upload(request, raw, audio)
+            except AudioNormalizationError as exc:
+                if "timed out" in str(exc):
+                    return _raw_error(504, "deadline_exceeded", retryable=True, retry_after_s=1)
+                return _raw_error(422, "invalid_audio", retryable=False)
+            decode_ms = int((time.monotonic() - decode_started) * 1000)
+
+            stt = _get_pipeline(request).stt
+            if not isinstance(stt, DetailedSTTAdapter):
+                logger.error("detailed STT unavailable: adapter lacks raw-result capability")
+                return _raw_error(503, "engine_unavailable", retryable=True, retry_after_s=1)
+            try:
+                result = await stt.try_transcribe_detailed(
+                    normalized.pcm_bytes,
+                    turn_id=str(uuid4()),
+                    include_polished=include_polished,
+                    require_bounded_deadline=True,
+                )
+            except STTDeadlineExceededError:
+                return _raw_error(504, "deadline_exceeded", retryable=True, retry_after_s=1)
+            except STTUnavailableError:
+                logger.warning("detailed STT unavailable")
+                return _raw_error(503, "engine_unavailable", retryable=True, retry_after_s=1)
+            except Exception:
+                logger.exception("detailed STT failed")
+                return _raw_error(503, "engine_unavailable", retryable=True, retry_after_s=1)
+        finally:
+            await form.close()
+
+    if result is None:
+        return _raw_error(429, "busy", retryable=True, retry_after_s=1)
+
+    total_ms = int((time.monotonic() - total_started) * 1000)
+    return JSONResponse(
+        content={
+            "raw": {
+                "outcome": "recognized" if result.raw_text else "no_speech",
+                "text": result.raw_text,
+                "segments": [
+                    {"start_ms": segment.start_ms, "end_ms": segment.end_ms, "text": segment.text}
+                    for segment in result.segments
+                ],
+                "language": result.language,
+                "confidence": result.confidence,
+            },
+            "polished": result.polished_text,
+            "audio": {
+                "duration_ms": round(normalized.duration_s * 1000),
+                "sample_rate_hz": normalized.sample_rate,
+                "channels": 1,
+            },
+            "engine": {
+                "backend": result.backend,
+                "model": result.model,
+                "library": result.library,
+                "revision": result.revision,
+            },
+            "timing": {
+                "decode_ms": decode_ms,
+                "inference_ms": result.stt_ms,
+                "polish_ms": result.polish_ms,
+                "total_ms": total_ms,
+            },
+        }
+    )
 
 
 async def _read_turn_upload(
