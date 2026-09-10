@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
-from typing import TypeVar
-
-T = TypeVar("T")
 
 
-async def await_bounded_task(task: asyncio.Task[T]) -> T:
+async def await_bounded_task[T](task: asyncio.Task[T]) -> T:
     """Keep the caller alive until *task* ends, then preserve cancellation.
 
     Blocking decoder and STT operations have their own process deadlines. Once
