@@ -10,10 +10,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: nbramia/linux-whisper
+          ref: e838e6f6bab1d13adeb138461d9acc1ed275fdce
+          path: .ci/linux-whisper
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
+      - run: pip install --no-deps -e .ci/linux-whisper
       - run: ruff check src tests
       - run: ruff format --check src tests
       - run: pytest -m "not integration"

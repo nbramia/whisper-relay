@@ -86,7 +86,7 @@ worker dump. Operational logs use identifiers and timing only.
 The detailed endpoint exposes readiness through normal startup state; health
 checks never run an inference. The upstream dependency is linux-whisper issue
 [#56](https://github.com/nbramia/linux-whisper/issues/56). The tested compatible
-revision is [`9e99cc0`](https://github.com/nbramia/linux-whisper/commit/9e99cc022a422faba6e51a1e6d8d66345018846f);
+revision is [`e838e6f`](https://github.com/nbramia/linux-whisper/commit/e838e6f6bab1d13adeb138461d9acc1ed275fdce);
 deployments must use that revision or a later compatible release before enabling
 the raw token.
 
@@ -108,8 +108,8 @@ service is a separate process and no strict GPU-priority guarantee is claimed.
 
 ## Implementation verification — 2026-09-09
 
-The post-review upstream pin is
-[`e43203c`](https://github.com/nbramia/linux-whisper/commit/e43203c). Its
+The final reviewed upstream pin is
+[`e838e6f`](https://github.com/nbramia/linux-whisper/commit/e838e6f6bab1d13adeb138461d9acc1ed275fdce). Its
 GPU-free process tests exercise startup hang, blocked audio writes, inference
 hang, forced exit, malformed frames, terminate-to-kill escalation, reaping, and
 replacement-worker recovery. Successful result frames must reproduce the
