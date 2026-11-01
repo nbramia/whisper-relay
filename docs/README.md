@@ -5,7 +5,7 @@
 | Topic | Canonical doc | Everything else |
 |-------|---------------|-----------------|
 | Project intent & diagram | [README.md](../README.md) | — |
-| Agent rules, invariants, boundaries | [AGENTS.md](../AGENTS.md) | [CLAUDE.md](../CLAUDE.md) adds escalation/mistakes only |
+| Agent rules, invariants, boundaries | [AGENTS.md](../AGENTS.md) | Includes escalation rules and common mistakes |
 | Why transport layer, not agent | [adr/001](adr/001-voice-transport-layer.md) | README links here |
 | linux-whisper + LifeOS integration | [adr/002](adr/002-upstream-integration-boundaries.md) | Issues #4, #5 cite this |
 | Dual text backends (LifeOS + Agent) | [adr/004](adr/004-dual-text-backends.md) | UI toggle; voice-adapter in agents repo |

@@ -204,7 +204,7 @@ distinct `WorkingDirectory` per instance removes the ambiguity entirely (issue
 
 ## Documentation
 
-**Contributing / AI agents:** start with [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md).
+**Contributing / AI agents:** start with [AGENTS.md](AGENTS.md).
 
 | Document | Purpose |
 |----------|---------|

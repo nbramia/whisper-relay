@@ -77,9 +77,9 @@ Voice interfaces handle personal speech. In all docs, examples, and test fixture
 - Never use real names, emails, or transcript content from production
 - Don't document internal Tailscale hostnames in public-facing material
 
-## Instruction File Pairs
+## Directory Instruction Files
 
-Per-directory `AGENTS.md` + `CLAUDE.md` (`@AGENTS.md`) when a directory has 3+ files or distinct rules. Current pairs:
+Per-directory `AGENTS.md` when a directory has 3+ files or distinct rules. Current ones:
 
 - `docs/adr/`
 - `docs/specs/standards/`

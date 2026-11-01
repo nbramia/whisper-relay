@@ -137,7 +137,6 @@ Full doc: [specs/standards/code-conventions.md](specs/standards/code-conventions
 ## Related Documents
 
 - [AGENTS.md](../AGENTS.md) — project constitution and boundaries table
-- [CLAUDE.md](../CLAUDE.md) — Claude Code escalation rules
 - [adr/001-voice-transport-layer.md](adr/001-voice-transport-layer.md)
 - [adr/003-kokoro-tts-bm-george.md](adr/003-kokoro-tts-bm-george.md)
 - [specs/standards/testing-standards.md](specs/standards/testing-standards.md)
