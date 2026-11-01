@@ -118,16 +118,13 @@ uvicorn voice_gateway.main:app --host 127.0.0.1 --port 9788
 
 ## Skills
 
-Available in `.claude/skills/`:
+Global skills and commands:
 
 | Skill | Purpose |
 |-------|---------|
-| `/implement` | Full lifecycle: plan → implement → PR → review → merge |
 | `/draft-issue` | Create GitHub issues with machine-testable acceptance criteria |
-| `/review-pr` | Adversarial PR review |
-| `/address-review` | Address review feedback with verification |
-| `/merge-pr` | Merge PR, update linked issues |
-| `/pr-check` | Validate PR against standards |
+| `/implement` | Build with subagents, adversarial review, verification |
+| `ship <pr>` | Wait for checks, merge, clean up, watch the deploy |
 
 ## Escalation Rules
 

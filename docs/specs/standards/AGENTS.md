@@ -1,6 +1,6 @@
 # Standards — whisper-relay
 
-Prescriptive rules for code and tests. Review agents and `/pr-check` cite these documents.
+Prescriptive rules for code and tests. Review agents cite these documents.
 
 ## Contents
 

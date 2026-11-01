@@ -115,7 +115,7 @@ Layered enforcement (adapted from LifeDB):
 
 1. **Local:** `ruff` + `pytest` before commit
 2. **CI:** lint, format check, unit tests (mocked adapters)
-3. **Review:** `/review-pr` or `/implement` adversarial passes
+3. **Review:** `/implement` adversarial review
 4. **Docs:** did the change invalidate an ADR or standard?
 
 Integration tests (real LifeOS, GPU STT) are `@pytest.mark.integration` — never required for CI green.
