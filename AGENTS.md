@@ -21,6 +21,7 @@ Details live in ADRs — do not duplicate here.
 - **TTS** → [ADR-003](docs/adr/003-kokoro-tts-bm-george.md)
 - **Third backend (Hermes) + context capabilities** → [ADR-006](docs/adr/006-hermes-third-text-backend.md)
 - **Turn cancellation** → [ADR-007](docs/adr/007-explicit-turn-cancellation.md)
+- **Turn lifetime (detached from the client connection)** → [ADR-010](docs/adr/010-server-owned-voice-turns.md)
 - **Per-tenant backend routing** → [ADR-008](docs/adr/008-per-tenant-backend-routing.md)
 - **Invariants & boundaries** → sections below
 
@@ -192,4 +193,5 @@ LifeOS must be running separately: `http://127.0.0.1:8000/health/full`
 - [docs/adr/006-hermes-third-text-backend.md](docs/adr/006-hermes-third-text-backend.md)
 - [docs/adr/007-explicit-turn-cancellation.md](docs/adr/007-explicit-turn-cancellation.md)
 - [docs/adr/008-per-tenant-backend-routing.md](docs/adr/008-per-tenant-backend-routing.md)
+- [docs/adr/010-server-owned-voice-turns.md](docs/adr/010-server-owned-voice-turns.md)
 - [docs/development-principles.md](docs/development-principles.md)

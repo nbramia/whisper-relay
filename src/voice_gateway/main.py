@@ -16,6 +16,7 @@ from voice_gateway.adapters.text_backend import TextBackendRouter
 from voice_gateway.adapters.tts import build_tts_adapter
 from voice_gateway.cancel import TurnRegistry
 from voice_gateway.config import Settings, get_settings
+from voice_gateway.detached import DetachedTurnRunner
 from voice_gateway.logging import configure_logging
 from voice_gateway.routes import health, root, voice
 from voice_gateway.storage import TurnStorage
@@ -94,6 +95,8 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    await app.state.turn_runner.shutdown()
+
 
 def create_app(
     settings: Settings | None = None,
@@ -131,6 +134,7 @@ def create_app(
         ]
     }
     app.state.turn_registry = TurnRegistry()
+    app.state.turn_runner = DetachedTurnRunner(settings)
     # Raw capture has one admitted request across decoding and recognition.
     # Voice turns retain their established STT serialization behavior.
     app.state.raw_stt_admission = asyncio.Semaphore(1)
