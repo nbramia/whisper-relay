@@ -255,3 +255,20 @@ async def test_detached_producer_does_not_block_on_full_queue(tmp_settings):
     await anext(reader)  # attach, read one frame, then walk away
     await reader.aclose()
     await asyncio.wait_for(turn.task, 5)
+
+
+@pytest.mark.asyncio
+async def test_head_audio_404_before_clip_then_200(tmp_settings):
+    lifeos = GatedLifeOS()
+    lifeos.release.set()
+    app, storage = _build(tmp_settings, lifeos)
+    turn_id = "6f1c2f0e-8d2b-4b7e-9a51-3c1d2e4f5a6b"
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        assert (await c.head(f"/api/voice/audio/{turn_id}")).status_code == 404
+        assert (await c.head(f"/api/voice/audio/{turn_id}/status-0")).status_code == 404
+        storage.turn_path(turn_id).mkdir(parents=True, exist_ok=True)
+        storage.clip_path(turn_id, "main").write_bytes(b"RIFF....WAVE")
+        storage.clip_path(turn_id, "status-0").write_bytes(b"RIFF....WAVE")
+        assert (await c.head(f"/api/voice/audio/{turn_id}")).status_code == 200
+        assert (await c.head(f"/api/voice/audio/{turn_id}/status-0")).status_code == 200
+        assert (await c.get(f"/api/voice/audio/{turn_id}")).status_code == 200

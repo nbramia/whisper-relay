@@ -591,12 +591,12 @@ async def cancel_voice_turn(turn_id: str, request: Request) -> dict[str, bool]:
     return {"cancelled": True}
 
 
-@router.get("/audio/{turn_id}")
+@router.api_route("/audio/{turn_id}", methods=["GET", "HEAD"])
 async def get_main_audio(turn_id: str, request: Request) -> FileResponse:
     return _serve_clip(turn_id, "main", request)
 
 
-@router.get("/audio/{turn_id}/{clip_id}")
+@router.api_route("/audio/{turn_id}/{clip_id}", methods=["GET", "HEAD"])
 async def get_clip_audio(turn_id: str, clip_id: str, request: Request) -> FileResponse:
     return _serve_clip(turn_id, clip_id, request)
 
