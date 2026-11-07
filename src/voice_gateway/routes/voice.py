@@ -40,6 +40,7 @@ from voice_gateway.audio import (
     normalize_audio_off_event_loop,
 )
 from voice_gateway.cancel import TurnRegistry, TurnTenantMismatchError
+from voice_gateway.detached import DetachedTurnRunner
 from voice_gateway.models import VoiceTurnResponse
 from voice_gateway.tenants import TENANT_TOKEN_HEADER, TenantRegistry
 from voice_gateway.turns import TurnError, TurnPipeline
@@ -493,9 +494,12 @@ async def voice_turn_stream(
     model = normalize_model_override(model_override)
     parse_handoff = _parse_handoff_enabled(request, backend_kind, pid, model)
 
-    async def event_stream():
-        registry: TurnRegistry = request.app.state.turn_registry
-        async for event in pipeline.run_turn_stream(
+    registry: TurnRegistry = request.app.state.turn_registry
+    runner: DetachedTurnRunner = request.app.state.turn_runner
+    # The turn is a server-owned task; this response only reads its events, so a
+    # client disconnect detaches the reader and the turn still runs to completion.
+    turn = runner.start(
+        pipeline.run_turn_stream(
             raw,
             content_type=content_type,
             filename=filename,
@@ -508,10 +512,12 @@ async def voice_turn_stream(
             parse_handoff=parse_handoff,
             text_backend=text_backend_router,
             tenant_id=tenant_id,
-        ):
+        )
+    )
+
+    async def event_stream():
+        async for event in turn.reader():
             yield f"data: {json.dumps(event)}\n\n"
-            if event.get("type") in {"done", "error", "cancelled"}:
-                break
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -585,12 +591,12 @@ async def cancel_voice_turn(turn_id: str, request: Request) -> dict[str, bool]:
     return {"cancelled": True}
 
 
-@router.get("/audio/{turn_id}")
+@router.api_route("/audio/{turn_id}", methods=["GET", "HEAD"])
 async def get_main_audio(turn_id: str, request: Request) -> FileResponse:
     return _serve_clip(turn_id, "main", request)
 
 
-@router.get("/audio/{turn_id}/{clip_id}")
+@router.api_route("/audio/{turn_id}/{clip_id}", methods=["GET", "HEAD"])
 async def get_clip_audio(turn_id: str, clip_id: str, request: Request) -> FileResponse:
     return _serve_clip(turn_id, clip_id, request)
 

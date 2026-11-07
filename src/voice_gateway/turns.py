@@ -154,6 +154,7 @@ class TurnPipeline:
         status_audio_urls: list[str] = []
         status_idx = 0
 
+        backend_task: asyncio.Task[None] | None = None
         log_event(logger, "turn_started", turn_id=turn_id)
         yield {"type": "started", "turn_id": turn_id}
 
@@ -324,5 +325,10 @@ class TurnPipeline:
                 "status_code": exc.status_code,
             }
         finally:
+            # A turn torn down mid-ask (deadline, shutdown) must not leave the
+            # backend call running with nobody to receive it.
+            if backend_task is not None and not backend_task.done():
+                backend_task.cancel()
+                await asyncio.wait({backend_task}, timeout=2.0)
             if registry:
                 registry.end(turn_id)
