@@ -29,15 +29,21 @@ class GatedLifeOS:
         self.asked = asyncio.Event()
         self.questions: list[str] = []
         self.cancelled = False
+        self.running = False
 
     async def ask(self, question, *, conversation_id, turn_id, cancel=None, **_):
         self.questions.append(question)
         self.asked.set()
-        while not self.release.is_set():
-            if cancel is not None and cancel.is_set():
-                self.cancelled = True
-                raise LifeOSCancelled("turn cancelled")
-            await asyncio.sleep(0.005)
+        self.running = True
+        try:
+            while not self.release.is_set():
+                if cancel is not None and cancel.is_set():
+                    self.cancelled = True
+                    raise LifeOSCancelled("turn cancelled")
+                await asyncio.sleep(0.005)
+        finally:
+            await asyncio.sleep(0.05)  # slow cleanup: only an awaited cancel sees it finish
+            self.running = False
         return LifeOSResult(answer="the reply", conversation_id="conv-1")
 
     async def list_personas(self):
@@ -237,8 +243,10 @@ async def test_shutdown_cancels_running_turns(tmp_settings):
     app, _ = _build(tmp_settings, lifeos)
     await _post_and_disconnect_after(app, b'"started"')
     await asyncio.wait_for(lifeos.asked.wait(), 5)
+    assert lifeos.running
     await app.state.turn_runner.shutdown()
     assert not app.state.turn_runner._tasks
+    assert not lifeos.running  # the backend call itself is gone, not just the turn task
 
 
 @pytest.mark.asyncio
@@ -272,3 +280,46 @@ async def test_head_audio_404_before_clip_then_200(tmp_settings):
         assert (await c.head(f"/api/voice/audio/{turn_id}")).status_code == 200
         assert (await c.head(f"/api/voice/audio/{turn_id}/status-0")).status_code == 200
         assert (await c.get(f"/api/voice/audio/{turn_id}")).status_code == 200
+
+
+def _status_events(n):
+    async def gen():
+        for i in range(n):
+            yield {"type": "status_audio", "url": str(i), "message": ""}
+        yield {"type": "done", "data": {}}
+
+    return gen()
+
+
+@pytest.mark.asyncio
+async def test_late_reader_after_overflow_still_gets_terminal_event(tmp_settings):
+    runner = DetachedTurnRunner(tmp_settings)
+    turn = runner.start(_status_events(1000))
+    await asyncio.wait_for(turn.task, 5)  # no reader yet; producer never blocks
+    events = [e async for e in turn.reader()]  # ends: sentinel survived
+    assert events[-1]["type"] == "done"
+    assert len(events) <= 256
+
+
+@pytest.mark.asyncio
+async def test_stalled_reader_does_not_block_deadline_or_shutdown(tmp_settings):
+    runner = DetachedTurnRunner(tmp_settings)
+    runner._max_lifetime_s = 0.2
+
+    async def endless():
+        while True:
+            yield {"type": "status_audio", "url": "x", "message": ""}
+            await asyncio.sleep(0)
+
+    turn = runner.start(endless())
+    reader = turn.reader()
+    await anext(reader)  # attached, then stalls and never reads again
+    await asyncio.wait_for(turn.task, 5)  # deadline fires despite a full buffer
+    assert not runner._tasks
+
+    turn2 = runner.start(endless())
+    reader2 = turn2.reader()
+    await anext(reader2)
+    await asyncio.sleep(0.05)
+    await asyncio.wait_for(runner.shutdown(), 5)
+    assert not runner._tasks

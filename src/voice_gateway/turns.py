@@ -329,5 +329,6 @@ class TurnPipeline:
             # backend call running with nobody to receive it.
             if backend_task is not None and not backend_task.done():
                 backend_task.cancel()
+                await asyncio.wait({backend_task}, timeout=2.0)
             if registry:
                 registry.end(turn_id)
